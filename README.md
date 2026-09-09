@@ -38,7 +38,7 @@ Marathon game data used by packaged builds:
 
 ```bash
 git clone --branch sprintathon --single-branch --recurse-submodules \
-  https://github.com/visageeee/alephone.git sprintathon
+  https://github.com/visageeee/alephone-sprintathon.git sprintathon
 cd sprintathon
 ```
 
