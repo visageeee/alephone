@@ -58,13 +58,13 @@ Source_Files/alephone
 
 Aleph One requires Marathon scenario data, including files such as `Map`, `Shapes`, `Sounds`, and `Images`.
 
-Pass the scenario directory to the locally compiled executable:
+If you store them at ```~/Games/Marathon``` Pass the scenario directory to the locally compiled executable:
 
 ```bash
 ./Source_Files/alephone ~/Games/Marathon
 ```
 
-Be sure to run `./Source_Files/alephone`, not an older system installation at `/usr/local/bin/alephone`.
+Be sure to run `./Source_Files/alephone`, older system installations could reside at `/usr/local/bin/alephone`.
 
 ## Controls
 
@@ -90,13 +90,6 @@ Global fog is configured separately in the OpenGL graphics preferences.
 
 Sprintathon is experimental. Gameplay behavior, networking compatibility, saved preferences, and scenario-specific interactions may still require testing.
 
-Bug reports should include:
-
-* The scenario and level
-* Relevant Sprintathon options
-* Steps to reproduce
-* Build output or terminal errors
-* Whether the issue occurs in upstream Aleph One
 
 ## Upstream project
 
