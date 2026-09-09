@@ -100,14 +100,4 @@ For upstream documentation, licensing, credits, and platform-specific build info
 ## License
 
 Sprintathon retains Aleph One's existing licensing. See the repository's license and copyright files for details.
-EOF
-
-git add README.md README_ALEPHONE.md
-git commit -m "Add Sprintathon project README"
-git push
-
-```
-
-This preserves all upstream documentation and makes the fork’s purpose immediately clear on its GitHub front page.
-```
 
