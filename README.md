@@ -2,7 +2,7 @@
 
 It's a Marathon, but also a sprint! 
 
-Sprintathon is a gameplay-focused fork of [Aleph One](https://github.com/Aleph-One-Marathon/alephone) that modernizes the movement, aiming, and first-person feel of the Marathon engine while retaining compatibility with Marathon scenarios.
+Sprintathon is a gameplay-focused fork of [Aleph One](https://github.com/Aleph-One-Marathon/alephone) that adds parkour-like movement, aiming, and first-person feel to the Marathon engine while retaining compatibility with Marathon scenarios.
 
 Sacrilegious features include JUMPING, CROUCHING, SPRINTING, SWIMMING ABOVE THE WATER SURFACE and more!
 
