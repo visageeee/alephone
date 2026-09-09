@@ -182,6 +182,7 @@ void initialize_player_physics_variables(
 	variables->actual_height= constants->height;
 	variables->jump_grace_ticks= 0;
 	player->crouch_key_was_down= false;
+	player->reload_key_was_down= false;
 	player->slide_punch_pending= false;
 	player->slide_ticks_remaining= 0;
 	player->sprintathon_camera_roll= 0;
@@ -612,7 +613,6 @@ static void physics_update(
 	const bool modern_swimming = sprintathon && input_preferences->sprintathon_swimming;
 	const bool modern_ledge_grab = modern_jump && input_preferences->sprintathon_ledge_grab;
 	const _fixed maximum_elevation = sprintathon_mouselook_limit(constants);
-
 	// Lean the viewpoint away from the wall during a wall run. The collision
 	// correction vector points away from the wall; projecting it onto the
 	// player's right vector tells us which way the camera should roll.

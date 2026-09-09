@@ -111,6 +111,8 @@ Apr 10, 2003 (Woody Zenfell):
 #include <string.h>
 #include <stdlib.h>
 #include <limits.h>
+#include <algorithm>
+#include <vector>
 
 #include "weapon_definitions.h"
 
@@ -209,6 +211,39 @@ static short shell_casing_id = 0;
 /* ------------- globals */
 /* The array of player weapon states */
 static struct player_weapon_data *player_weapons_array;
+
+static std::vector<int16> partial_magazines[MAXIMUM_NUMBER_OF_PLAYERS][NUMBER_OF_ITEMS];
+
+void reset_partial_magazines(short player_index)
+{
+	if (player_index < 0 || player_index >= MAXIMUM_NUMBER_OF_PLAYERS) return;
+	for (auto& magazines : partial_magazines[player_index]) magazines.clear();
+}
+
+static bool has_partial_magazine(short player_index, short ammunition_type)
+{
+	return input_preferences->sprintathon_enabled &&
+		player_index >= 0 && player_index < MAXIMUM_NUMBER_OF_PLAYERS &&
+		ammunition_type >= 0 && ammunition_type < NUMBER_OF_ITEMS &&
+		!partial_magazines[player_index][ammunition_type].empty();
+}
+
+static int16 fullest_partial_magazine_rounds(short player_index, short ammunition_type)
+{
+	if (!has_partial_magazine(player_index, ammunition_type)) return 0;
+	const auto& magazines = partial_magazines[player_index][ammunition_type];
+	return *std::max_element(magazines.begin(), magazines.end());
+}
+
+static int16 take_fullest_partial_magazine(short player_index, short ammunition_type)
+{
+	auto& magazines = partial_magazines[player_index][ammunition_type];
+	auto fullest = std::max_element(magazines.begin(), magazines.end());
+	if (fullest == magazines.end()) return 0;
+	const int16 rounds = *fullest;
+	magazines.erase(fullest);
+	return rounds;
+}
 
 /* ------------- macros */
 #define get_maximum_number_of_players() (MAXIMUM_NUMBER_OF_PLAYERS)
@@ -344,6 +379,7 @@ void initialize_player_weapons_for_new_game(
 
 	/* Clear the shots fired and all that jazz */
 	obj_clear(*player_weapons);
+	reset_partial_magazines(player_index);
 	
 	/* initialize the weapons to known states. */
 	initialize_player_weapons(player_index);
@@ -2080,7 +2116,9 @@ static bool reload_weapon(
 	if (!(trigger->state==_weapon_idle && trigger->rounds_loaded==0)) return false;
 	if (!(trigger_definition->ammunition_type==NONE || (trigger_definition->ammunition_type>=0 && trigger_definition->ammunition_type<NUMBER_OF_ITEMS))) return false;
 
-	if(trigger_definition->ammunition_type != NONE && player->items[trigger_definition->ammunition_type]>0)
+	if(trigger_definition->ammunition_type != NONE &&
+		(player->items[trigger_definition->ammunition_type] > 0 ||
+		 has_partial_magazine(player_index, trigger_definition->ammunition_type)))
 	{
 		struct weapon_data *weapon= get_player_current_weapon(player_index);
 	
@@ -2333,11 +2371,26 @@ bool reload_player_weapon_trigger(
 		return false;
 
     if(trigger_def->ammunition_type != NONE &&
-        player->items[trigger_def->ammunition_type] <= 0)
+        player->items[trigger_def->ammunition_type] <= 0 &&
+        !has_partial_magazine(player_index, trigger_def->ammunition_type))
         return false;
+
+	// With no full magazine in reserve, reload only when a retained partial
+	// contains more rounds than the magazine currently in the weapon.
+	if(trigger_def->ammunition_type != NONE &&
+		player->items[trigger_def->ammunition_type] <= 0 &&
+		trigger->rounds_loaded >= fullest_partial_magazine_rounds(
+			player_index, trigger_def->ammunition_type))
+		return false;
 
     if(trigger->state == _weapon_idle && trigger->rounds_loaded > 0)
     {
+        if(input_preferences->sprintathon_enabled &&
+            trigger_def->ammunition_type != NONE)
+        {
+            partial_magazines[player_index][trigger_def->ammunition_type]
+                .push_back(trigger->rounds_loaded);
+        }
         trigger->rounds_loaded = 0;
     }
 
@@ -2358,16 +2411,18 @@ static void put_rounds_into_weapon(
 	struct player_data *player= get_player_data(player_index);
 
 	assert(trigger_definition->ammunition_type>=0 && trigger_definition->ammunition_type<NUMBER_OF_ITEMS);
-	if (player->items[trigger_definition->ammunition_type] == 0) {
+	const short ammunition_type = trigger_definition->ammunition_type;
+	const bool full_magazine_available = player->items[ammunition_type] > 0;
+	if (!full_magazine_available && !has_partial_magazine(player_index, ammunition_type)) {
 		trigger->state = _weapon_lowering;
 		return;
 	}
 	
-	/* Load the gun */
-	trigger->rounds_loaded= trigger_definition->rounds_per_magazine;
-
-	/* Decrement the ammo magazine count. */
-	player->items[trigger_definition->ammunition_type]--;
+	/* Prefer a full magazine, then the fullest retained partial. */
+	trigger->rounds_loaded = full_magazine_available ?
+		trigger_definition->rounds_per_magazine :
+		take_fullest_partial_magazine(player_index, ammunition_type);
+	if (full_magazine_available) player->items[ammunition_type]--;
 
 	/* Update the inventory display. Second parameter: NONE- don't switch to ammo list */
 	/* _i_magnum_magazine- switch to ammo list */
@@ -2382,7 +2437,8 @@ static void put_rounds_into_weapon(
 
 
 	/* Update the world ammunition count for the placement data */
-	object_was_just_destroyed(_object_is_item, trigger_definition->ammunition_type);
+	if (full_magazine_available)
+		object_was_just_destroyed(_object_is_item, ammunition_type);
 
 	/* Update the player ammunition count */
 	update_player_ammo_count(player_index);
@@ -4273,6 +4329,66 @@ uint8 *pack_player_weapon_data(uint8 *Stream, size_t Count)
 	}
 	assert((S - Stream) == static_cast<ptrdiff_t>(Count*SIZEOF_player_weapon_data));
 	return S;
+}
+
+size_t calculate_partial_magazines_data_length()
+{
+	size_t length = 2 * sizeof(uint16);
+	for (short p = 0; p < dynamic_world->player_count; ++p)
+		for (short ammo = 0; ammo < NUMBER_OF_ITEMS; ++ammo)
+			length += sizeof(uint16) + partial_magazines[p][ammo].size() * sizeof(int16);
+	return length;
+}
+
+uint8 *pack_partial_magazines(uint8 *Stream)
+{
+	uint8 *S = Stream;
+	ValueToStream(S, static_cast<uint16>(1));
+	ValueToStream(S, static_cast<uint16>(dynamic_world->player_count));
+	for (short p = 0; p < dynamic_world->player_count; ++p)
+	{
+		for (short ammo = 0; ammo < NUMBER_OF_ITEMS; ++ammo)
+		{
+			const auto& magazines = partial_magazines[p][ammo];
+			ValueToStream(S, static_cast<uint16>(magazines.size()));
+			for (const int16 rounds : magazines) ValueToStream(S, rounds);
+		}
+	}
+	return S;
+}
+
+bool unpack_partial_magazines(const uint8 *Stream, size_t length)
+{
+	for (short p = 0; p < MAXIMUM_NUMBER_OF_PLAYERS; ++p) reset_partial_magazines(p);
+	if (!Stream || length < 2 * sizeof(uint16)) return false;
+
+	uint8 *S = const_cast<uint8 *>(Stream);
+	uint16 version, player_count;
+	StreamToValue(S, version);
+	StreamToValue(S, player_count);
+	if (version != 1 || player_count > MAXIMUM_NUMBER_OF_PLAYERS) return false;
+
+	size_t remaining = length - 2 * sizeof(uint16);
+	for (uint16 p = 0; p < player_count; ++p)
+	{
+		for (short ammo = 0; ammo < NUMBER_OF_ITEMS; ++ammo)
+		{
+			if (remaining < sizeof(uint16)) return false;
+			uint16 count;
+			StreamToValue(S, count);
+			remaining -= sizeof(uint16);
+			const size_t bytes = static_cast<size_t>(count) * sizeof(int16);
+			if (remaining < bytes) return false;
+			for (uint16 i = 0; i < count; ++i)
+			{
+				int16 rounds;
+				StreamToValue(S, rounds);
+				if (rounds > 0) partial_magazines[p][ammo].push_back(rounds);
+			}
+			remaining -= bytes;
+		}
+	}
+	return remaining == 0;
 }
 
 inline void StreamToTrigDefData(uint8* &S, trigger_definition& Object)

@@ -18,6 +18,7 @@ All gameplay additions can be configured from the **Sprintathon** preferences pa
 - Jumping with coyote time
 - Crouching and crouch long-jumps
 - Timed sprinting with cooldown
+- "Realistic" Reloading.
 - Lowered weapon and enhanced weapon sway while sprinting
 - Wall-running and wall-jumping
 - Modernized swimming and surface movement
@@ -25,6 +26,10 @@ All gameplay additions can be configured from the **Sprintathon** preferences pa
 - Optional global fog
 
 Movement features can be enabled or disabled individually, allowing Sprintathon to range from mostly traditional Marathon movement to the complete modernized movement set.
+
+##Realistic Reloading
+
+Sprintathon adds a weapons reloading keybind, "R" by default. Reloading do not discard unfinished magazines. The game remembers the rounds left in every magazine, uses full magazines first, and later returns the fullest partial magazine available.
 
 ## Building on Ubuntu
 

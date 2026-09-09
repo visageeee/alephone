@@ -590,6 +590,15 @@ void decode_hotkeys(ModifiableActionQueues& action_queues)
 		auto action_flags = action_queues.peekActionFlags(player_index, 0);
 		auto player = get_player_data(player_index);
 		player->hotkey = 0;
+
+		// Sprintathon Reload uses both cycle bits plus Swim.  Let the player
+		// update consume this signature instead of starting hotkey decoding.
+		const bool sprintathon_reload =
+			input_preferences->sprintathon_enabled &&
+			(action_flags & hotkey_mask) == hotkey_mask &&
+			(action_flags & _swim);
+		if (sprintathon_reload)
+			continue;
 		
 		if (player->hotkey_sequence == 0x03)
 		{
@@ -685,6 +694,16 @@ void update_players(ActionQueues* inActionQueuesToUse, bool inPredictive)
 				update_player_for_terminal_mode(player_index);
 			}
 			action_flags= 0;
+		}
+
+		const bool reload_key_down =
+			input_preferences->sprintathon_enabled &&
+			(action_flags & hotkey_mask) == hotkey_mask &&
+			(action_flags & _swim);
+		if (reload_key_down)
+		{
+			// Remove the wire signature before movement and weapon selection.
+			action_flags &= ~(hotkey_mask | _swim);
 		}
 		
 		bool IsSwimming = TEST_FLAG(
@@ -797,6 +816,20 @@ void update_players(ActionQueues* inActionQueuesToUse, bool inPredictive)
 
 		if(!inPredictive)
 		{
+			if (!reload_key_down)
+				player->reload_key_was_down= false;
+			else if (!player->reload_key_was_down)
+			{
+				player->reload_key_was_down= true;
+				if (!PLAYER_IS_DEAD(player) && !player->sprinting &&
+					player->slide_ticks_remaining==0)
+				{
+					// Request normal engine reloads, retaining scenario ammunition,
+					// animation and dual-wield behavior.
+					reload_player_weapon_trigger(player_index, _primary_weapon);
+					reload_player_weapon_trigger(player_index, _secondary_weapon);
+				}
+			}
 			player->invisibility_duration= FLOOR(player->invisibility_duration-1, 0);
 			player->invincibility_duration= FLOOR(player->invincibility_duration-1, 0);
 			player->infravision_duration= FLOOR(player->infravision_duration-1, 0);

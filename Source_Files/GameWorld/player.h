@@ -429,6 +429,7 @@ struct player_data
 	bool sprint_key_was_down;			// requires release before restarting
 	bool wall_jump_key_was_down;			// prevents repeated wall jumps
 	bool crouch_key_was_down;			// edge detection for sprint slide
+	bool reload_key_was_down;			// edge detection for manual reload
 	bool slide_punch_pending;			// emit one melee projectile on slide start
 	uint8 slide_ticks_remaining;			// short forced-movement slide
 	int16 sprintathon_camera_roll;		// signed visual roll, in engine angle units

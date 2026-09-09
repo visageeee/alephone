@@ -1926,6 +1926,13 @@ bool process_map_wad(
 		count= data_length/SIZEOF_player_weapon_data;
 		assert(count*SIZEOF_player_weapon_data==data_length);
 		unpack_player_weapon_data(data,count);
+
+		data = (uint8 *)extract_type_from_wad(wad, PARTIAL_MAGAZINES_TAG, &data_length);
+		if (data)
+			unpack_partial_magazines(data, data_length);
+		else
+			for (short p = 0; p < MAXIMUM_NUMBER_OF_PLAYERS; ++p)
+				reset_partial_magazines(p);
 		
 		data= (uint8 *)extract_type_from_wad(wad, TERMINAL_STATE_TAG, &data_length);
 		count= data_length/SIZEOF_player_terminal_data;
@@ -2150,7 +2157,8 @@ struct save_game_data save_data[]=
 	{ PROJECTILES_STRUCTURE_TAG, SIZEOF_projectile_data, true }, // false },
 	{ PLATFORM_STRUCTURE_TAG, SIZEOF_platform_data, true }, // false },
 	{ WEAPON_STATE_TAG, SIZEOF_player_weapon_data, true }, // false },
-	{ TERMINAL_STATE_TAG, SIZEOF_player_terminal_data, true }, // false }
+	{ PARTIAL_MAGAZINES_TAG, sizeof(byte), true },
+	{ TERMINAL_STATE_TAG, SIZEOF_player_terminal_data, true }, // false },
 
 	{ LUA_STATE_TAG, sizeof(byte), true },
 };
@@ -2389,6 +2397,9 @@ static uint8 *tag_to_global_array_and_size(
 		case WEAPON_STATE_TAG:
 			count= dynamic_world->player_count;
 			break;
+		case PARTIAL_MAGAZINES_TAG:
+			count = calculate_partial_magazines_data_length();
+			break;
 		case TERMINAL_STATE_TAG:
 			count= dynamic_world->player_count;
 			break;
@@ -2513,6 +2524,9 @@ static uint8 *tag_to_global_array_and_size(
 			break;
 		case WEAPON_STATE_TAG:
 			pack_player_weapon_data(array,count);
+			break;
+		case PARTIAL_MAGAZINES_TAG:
+			pack_partial_magazines(array);
 			break;
 		case TERMINAL_STATE_TAG:
 			pack_player_terminal_data(array,count);

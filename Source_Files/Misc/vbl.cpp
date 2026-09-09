@@ -1258,6 +1258,9 @@ uint32 parse_keymap(void)
       // Post-process the keymap
 		struct special_flag_data *special = special_flags;
       for (unsigned i=0; i<NUMBER_OF_SPECIAL_FLAGS; i++, special++) {
+	if (input_preferences->sprintathon_enabled &&
+		special->alternate_flag == _looking_center)
+	  continue; // double-tapping Sprint must not synthesize Reload
 	if (flags & special->flag) {
 	  switch (special->type) {
 	  case _double_flag:
@@ -1315,6 +1318,33 @@ uint32 parse_keymap(void)
 	  }
 
 	  flags = process_joystick_axes(flags);
+
+	  /*
+	   * Reload is the sixteenth configurable keyboard action.  Do not feed
+	   * its two-bit wire signature through the independent weapon-cycle
+	   * latches above: one half can otherwise be removed and interpreted as
+	   * an ordinary next/previous weapon command.  Generate the signature
+	   * atomically after all input post-processing instead.
+	   */
+	  constexpr int sprintathon_reload_binding_index = 15;
+	  bool reload_binding_down = false;
+	  for (const SDL_Scancode& code :
+		  input_preferences->key_bindings[sprintathon_reload_binding_index])
+	  {
+		  if (key_map[code])
+		  {
+			  reload_binding_down = true;
+			  break;
+		  }
+	  }
+
+	  if (reload_binding_down)
+	  {
+		  if (input_preferences->sprintathon_enabled)
+			  flags |= _cycle_weapons_backward | _cycle_weapons_forward | _swim;
+		  else
+			  flags |= _sidestep_dont_turn;
+	  }
 
       // if the user prefers to toggle run/swim, the flag becomes latched
       if (input_preferences->modifiers & _inputmod_run_key_toggle)
@@ -1478,5 +1508,4 @@ void execute_timer_tasks(uint64_t time)
 		}
 	}
 }
-
 

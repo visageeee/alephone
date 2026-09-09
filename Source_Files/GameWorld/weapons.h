@@ -213,6 +213,10 @@ void debug_print_weapon_status(void);
 
 uint8 *unpack_player_weapon_data(uint8 *Stream, size_t Count);
 uint8 *pack_player_weapon_data(uint8 *Stream, size_t Count);
+void reset_partial_magazines(short player_index);
+size_t calculate_partial_magazines_data_length();
+uint8 *pack_partial_magazines(uint8 *Stream);
+bool unpack_partial_magazines(const uint8 *Stream, size_t length);
 uint8 *unpack_weapon_definition(uint8 *Stream, size_t Count);
 uint8 *pack_weapon_definition(uint8 *Stream, size_t Count);
 uint8* unpack_m1_weapon_definition(uint8* Stream, size_t Count);

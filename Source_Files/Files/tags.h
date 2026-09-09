@@ -145,6 +145,7 @@ void set_typecode(Typecode which, uint32 _type);
 #define PROJECTILES_STRUCTURE_TAG FOUR_CHARS_TO_INT('b','a','n','g')
 #define PLATFORM_STRUCTURE_TAG FOUR_CHARS_TO_INT('P','L','A','T')
 #define WEAPON_STATE_TAG FOUR_CHARS_TO_INT('w','e','a','p')
+#define PARTIAL_MAGAZINES_TAG FOUR_CHARS_TO_INT('p','m','a','g')
 #define TERMINAL_STATE_TAG FOUR_CHARS_TO_INT('c','i','n','t')
 #define LUA_STATE_TAG FOUR_CHARS_TO_INT('s','l','u','a')
 
