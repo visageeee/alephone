@@ -188,8 +188,8 @@ void OGL_StopProgress()
 // Sensible defaults for the fog:
 static OGL_FogData FogData[OGL_NUMBER_OF_FOG_TYPES] = 
 {
-	{{0x8000,0x8000,0x8000},8,0,false,true,OGL_Fog_Exp,1},
-	{{0x8000,0x8000,0x8000},8,0,false,true,OGL_Fog_Exp,1}
+	{{0xe000,0xe000,0xe000},16,0,false,true,OGL_Fog_Exp,1},
+	{{0xe000,0xe000,0xe000},16,0,false,true,OGL_Fog_Exp,1}
 };
 
 

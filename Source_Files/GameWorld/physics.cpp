@@ -130,6 +130,21 @@ static bool saved_divergence_warning;
 static struct physics_constants physics_models[NUMBER_OF_PHYSICS_MODELS];
 static fixed_yaw_pitch vir_aim_delta = {0, 0};
 
+static constexpr _fixed EXPERIMENTAL_MAXIMUM_ELEVATION =
+	(QUARTER_CIRCLE * FIXED_ONE * 2) / 3; // 60 degrees
+
+static _fixed sprintathon_mouselook_limit(const physics_constants *constants)
+{
+	switch (input_preferences->sprintathon_mouselook_mode)
+	{
+		case 1: return (QUARTER_CIRCLE * FIXED_ONE) / 2;       // 45 degrees
+		case 2: return EXPERIMENTAL_MAXIMUM_ELEVATION;         // 60 degrees
+		case 3: return (QUARTER_CIRCLE * FIXED_ONE * 5) / 6;   // 75 degrees
+		case 4: return QUARTER_CIRCLE * FIXED_ONE - FIXED_ONE; // about 89.3 degrees
+		default: return constants->maximum_elevation;           // scenario/original limit
+	}
+}
+
 /* every other field in the player structure should be valid when this call is made */
 void initialize_player_physics_variables(
 	short player_index)
@@ -161,7 +176,10 @@ void initialize_player_physics_variables(
 
 	variables->external_angular_velocity= 0;
 	variables->external_velocity.i= variables->external_velocity.j= variables->external_velocity.k= 0;
+	variables->wall_push_i= variables->wall_push_j= 0;
+	variables->ledge_height= INT16_MAX;
 	variables->actual_height= constants->height;
+	variables->jump_grace_ticks= 0;
 	
 	variables->step_phase= 0;
 	variables->step_amplitude= 0;
@@ -283,9 +301,9 @@ void get_absolute_pitch_range(
 	_fixed *maximum)
 {
 	struct physics_constants *constants= get_physics_constants_for_model(static_world->physics_model, 0);
-	
-	*minimum= -constants->maximum_elevation;
-	*maximum= constants->maximum_elevation;
+	const _fixed limit = sprintathon_mouselook_limit(constants);
+	*minimum= -limit;
+	*maximum= limit;
 }
 
 void kill_player_physics_variables(
@@ -431,7 +449,9 @@ uint32 process_aim_input(uint32 action_flags, fixed_yaw_pitch delta)
 	short old_polygon_index= legs->polygon;
 	world_point3d new_location;
 	world_distance adjusted_floor_height, adjusted_ceiling_height, object_floor;
+	world_distance blocked_ledge_height= INT16_MAX;
 	bool clipped;
+	world_point3d attempted_location;
 	_fixed step_height;
 	angle facing, elevation;
 	_fixed fixed_facing;
@@ -447,9 +467,11 @@ uint32 process_aim_input(uint32 action_flags, fixed_yaw_pitch delta)
 	if (PLAYER_IS_DEAD(player)) new_location.z+= FIXED_TO_WORLD(DROP_DEAD_HEIGHT);
 	if (take_action && !first_time && player->last_supporting_polygon_index!=player->supporting_polygon_index) changed_polygon(player->last_supporting_polygon_index, player->supporting_polygon_index, player_index);
 	player->last_supporting_polygon_index= first_time ? NONE : player->supporting_polygon_index;
+	attempted_location = new_location;
 	clipped= keep_line_segment_out_of_walls(legs->polygon, &legs->location, &new_location,
 		WORLD_ONE/3, FIXED_TO_WORLD(variables->actual_height), &adjusted_floor_height, &adjusted_ceiling_height,
-		&player->supporting_polygon_index);
+		&player->supporting_polygon_index, &blocked_ledge_height);
+	variables->ledge_height= blocked_ledge_height;
 	if (PLAYER_IS_DEAD(player)) new_location.z-= FIXED_TO_WORLD(DROP_DEAD_HEIGHT);
 
 	/* check for 2d collisions with solid objects and knock the player back out of the object.
@@ -487,12 +509,32 @@ uint32 process_aim_input(uint32 action_flags, fixed_yaw_pitch delta)
 			monster_moved(player->monster_index, old_polygon_index);
 	}
 
+	/*
+	 * Remember obstruction for near-surface ledge assistance during the
+	 * following physics tick.
+	 */
+	if (clipped)
+		variables->flags |= _HORIZONTAL_COLLISION_BIT;
+	else
+		variables->flags &= (uint16)~_HORIZONTAL_COLLISION_BIT;
+
 	/* if our move got clipped, copy the new coordinate back into the physics variables */
 	if (clipped)
 	{
+		// Collision correction points away from the wall.
+		variables->wall_push_i =
+			WORLD_TO_FIXED(new_location.x - attempted_location.x);
+		variables->wall_push_j =
+			WORLD_TO_FIXED(new_location.y - attempted_location.y);
+
 		variables->position.x= WORLD_TO_FIXED(new_location.x);
 		variables->position.y= WORLD_TO_FIXED(new_location.y);
 		variables->position.z= WORLD_TO_FIXED(new_location.z);
+	}
+	else
+	{
+		variables->wall_push_i= 0;
+		variables->wall_push_j= 0;
 	}
 	
 	/* shadow position in player structure, build camera location */
@@ -502,7 +544,10 @@ uint32 process_aim_input(uint32 action_flags, fixed_yaw_pitch delta)
 	player->camera_location= new_location;
 	if (PLAYER_IS_DEAD(player) && new_location.z<adjusted_floor_height) new_location.z= adjusted_floor_height;
 	player->location= new_location;
-	player->camera_location.z+= FIXED_TO_WORLD(step_height+variables->actual_height-constants->camera_height);
+	player->camera_location.z += FIXED_TO_WORLD(step_height +
+		(input_preferences->sprintathon_enabled ?
+			variables->actual_height - FIXED_ONE / 8 :
+			variables->actual_height - constants->camera_height));
 	player->step_height = FIXED_TO_WORLD(step_height);
 	player->camera_polygon_index= legs->polygon;
 
@@ -522,6 +567,10 @@ uint32 process_aim_input(uint32 action_flags, fixed_yaw_pitch delta)
 		// LP change: idiot-proofing
 		media_data *media = get_media_data(media_index);
 		world_distance media_height= (media_index==NONE || !media) ? INT16_MIN : media->height;
+
+		variables->media_height =
+			(media_index == NONE || !media) ?
+				0 : WORLD_TO_FIXED(media_height);
 
 		if (player->location.z<media_height) variables->flags|= _FEET_BELOW_MEDIA_BIT; else variables->flags&= (uint16)~_FEET_BELOW_MEDIA_BIT;
 		if (player->camera_location.z<media_height) variables->flags|= _HEAD_BELOW_MEDIA_BIT; else variables->flags&= (uint16)~_HEAD_BELOW_MEDIA_BIT;
@@ -547,6 +596,18 @@ static void physics_update(
 	_fixed delta; /* used as a scratch ‘change’ variable */
 	
 	const bool player_is_local = (player == local_player);
+	const bool sprintathon = input_preferences->sprintathon_enabled;
+	const bool modern_jump = sprintathon && input_preferences->sprintathon_jump;
+	const bool modern_crouch = sprintathon && input_preferences->sprintathon_crouch;
+	const bool modern_long_jump = modern_jump && modern_crouch && input_preferences->sprintathon_long_jump;
+	const bool modern_wall_run = sprintathon && input_preferences->sprintathon_wall_run;
+	const bool modern_wall_jump = modern_jump && input_preferences->sprintathon_wall_jump;
+	const bool modern_swimming = sprintathon && input_preferences->sprintathon_swimming;
+	const bool modern_ledge_grab = modern_jump && input_preferences->sprintathon_ledge_grab;
+	const _fixed maximum_elevation = sprintathon_mouselook_limit(constants);
+	if (!modern_swimming) variables->flags&= (uint16)~_WATER_MANTLING_BIT;
+	if (!modern_ledge_grab) variables->flags&= (uint16)~_DRY_MANTLING_BIT;
+	if (!sprintathon || !input_preferences->sprintathon_sprint) player->sprinting= false;
 
 	if (PLAYER_IS_DEAD(player)) /* dead players immediately loose all bodily control */
 	{
@@ -575,6 +636,66 @@ static void physics_update(
 	}
 	delta_z= variables->position.z-variables->floor_height;
 
+	/*
+	 * Keep a short grace period after leaving the ground. This covers
+	 * stair transitions and permits jumping just after walking off an edge.
+	 */
+	constexpr uint8 jump_grace_limit = 4;
+
+	const bool touching_ground =
+		delta_z <= CLOSE_ENOUGH_TO_FLOOR;
+
+	if (touching_ground)
+	{
+		variables->jump_grace_ticks = 0;
+	}
+	else if (variables->jump_grace_ticks < UINT8_MAX)
+	{
+		++variables->jump_grace_ticks;
+	}
+
+	/*
+	 * Experimental hold-to-crouch. The microphone/aux-trigger action
+	 * is reused because the original action packet has no spare bits.
+	 */
+	if (modern_crouch && !PLAYER_IS_DEAD(player))
+	{
+		const _fixed standing_height = constants->height;
+		const _fixed crouching_height = constants->height / 2;
+		const _fixed target_height =
+			(action_flags & _microphone_button) ?
+				crouching_height : standing_height;
+		const _fixed crouch_step =
+			std::max<_fixed>(FIXED_ONE / 64, standing_height / 8);
+
+		if (variables->actual_height > target_height)
+		{
+			variables->actual_height =
+				std::max(
+					target_height,
+					variables->actual_height - crouch_step);
+		}
+		else if (variables->actual_height < target_height)
+		{
+			const bool enough_headroom =
+				variables->position.z + standing_height <=
+					variables->ceiling_height;
+
+			if (enough_headroom)
+			{
+				variables->actual_height =
+					std::min(
+						target_height,
+						variables->actual_height + crouch_step);
+			}
+		}
+	}
+	else if (!modern_crouch && variables->actual_height<constants->height &&
+		variables->position.z+constants->height<=variables->ceiling_height)
+	{
+		variables->actual_height= constants->height;
+	}
+
 	/* process modifier keys (sidestepping and looking) into normal actions */
 	if ((action_flags&_turning) && (action_flags&_sidestep_dont_turn) && !(action_flags&_absolute_yaw_mode))
 	{
@@ -582,7 +703,9 @@ static void physics_update(
 		if (action_flags&_turning_right) action_flags|= _sidestepping_right;
 		action_flags&= ~_turning;
 	}
-	if ((action_flags&_moving) && (action_flags&_look_dont_turn) && !(action_flags&_absolute_position_mode))
+	// Sprintathon reuses Move -> Look as Sprint; restore its legacy behavior when disabled.
+	if (!sprintathon && (action_flags&_moving) && (action_flags&_look_dont_turn) &&
+		!(action_flags&_absolute_position_mode))
 	{
 		if (action_flags&_moving_forward) action_flags|= _looking_up;
 		if (action_flags&_moving_backward) action_flags|= _looking_down;
@@ -642,7 +765,31 @@ static void physics_update(
 
 	if (action_flags&_absolute_pitch_mode)
 	{
-		variables->vertical_angular_velocity= (GET_ABSOLUTE_PITCH(action_flags)-MAXIMUM_ABSOLUTE_PITCH/2)<<(FIXED_FRACTIONAL_BITS);
+		if (input_preferences->sprintathon_mouselook_mode == 0)
+		{
+			variables->vertical_angular_velocity=
+				(GET_ABSOLUTE_PITCH(action_flags)-MAXIMUM_ABSOLUTE_PITCH/2)<<FIXED_FRACTIONAL_BITS;
+		}
+		else
+		{
+		// Preserve precise slow pitch movement while allowing fast vertical turns.
+		const int raw_pitch =
+			GET_ABSOLUTE_PITCH(action_flags) - MAXIMUM_ABSOLUTE_PITCH / 2;
+		const int pitch_magnitude = std::min(std::abs(raw_pitch), 15);
+		int curved_magnitude = pitch_magnitude;
+
+		if (pitch_magnitude > 4)
+		{
+			const int excess = pitch_magnitude - 4;
+			curved_magnitude +=
+				(excess * excess * 48 + 60) / 121;
+		}
+
+		const int curved_pitch =
+			raw_pitch < 0 ? -curved_magnitude : curved_magnitude;
+		variables->vertical_angular_velocity =
+			curved_pitch * FIXED_ONE;
+		}
 	}
 	else
 	{
@@ -703,7 +850,13 @@ static void physics_update(
 
 	/* if we’re on the ground (or rising up from it), allow movement; if we’re flying through
 		the air, don’t let the player adjust his velocity in any way */
-	if (delta_z<=0 || (variables->flags&_HEAD_BELOW_MEDIA_BIT))
+	if (delta_z<=0 ||
+		(sprintathon ?
+			((modern_swimming && (variables->flags&_FEET_BELOW_MEDIA_BIT)) ||
+			 (modern_swimming && (variables->flags&_WATER_MANTLING_BIT)) ||
+			 (modern_ledge_grab && (variables->flags&_DRY_MANTLING_BIT)) ||
+			 (modern_wall_run && player->sprinting && (variables->flags&_HORIZONTAL_COLLISION_BIT))) :
+			 (variables->flags&_HEAD_BELOW_MEDIA_BIT)))
 	{
 		if (action_flags&_absolute_position_mode)
 		{
@@ -764,6 +917,108 @@ static void physics_update(
 		}
 	}
 	
+	/*
+	 * Experimental crouch movement limit.
+	 *
+	 * Acceleration remains responsive, but forward, backward and sideways
+	 * velocity are capped at 60 percent while crouch is held.
+	 */
+	if (modern_crouch && (action_flags & _microphone_button))
+	{
+		const _fixed crouch_forward_limit =
+			(constants->maximum_forward_velocity * 3) / 5;
+		const _fixed crouch_backward_limit =
+			(constants->maximum_backward_velocity * 3) / 5;
+		const _fixed crouch_sideways_limit =
+			(constants->maximum_perpendicular_velocity * 3) / 5;
+
+		variables->velocity = PIN(
+			variables->velocity,
+			-crouch_backward_limit,
+			crouch_forward_limit);
+
+		variables->perpendicular_velocity = PIN(
+			variables->perpendicular_velocity,
+			-crouch_sideways_limit,
+			crouch_sideways_limit);
+	}
+
+	const bool dry_grab_requested =
+		(action_flags&_swim) &&
+		((action_flags&_moving_forward) || (action_flags&_absolute_position_mode));
+	if (modern_ledge_grab && dry_grab_requested && !player->sprinting && delta_z>0 &&
+		variables->ledge_height!=INT16_MAX &&
+		(variables->flags&_HORIZONTAL_COLLISION_BIT) &&
+		!(variables->flags&_FEET_BELOW_MEDIA_BIT))
+	{
+		const _fixed ledge_top= WORLD_TO_FIXED(variables->ledge_height);
+		const _fixed eye_height= variables->position.z+variables->actual_height-FIXED_ONE/8;
+		if (eye_height+FIXED_ONE/6>=ledge_top && variables->position.z<ledge_top &&
+			!(variables->flags&_DRY_MANTLING_BIT))
+		{
+			variables->flags|= _DRY_MANTLING_BIT;
+			play_object_sound(player->object_index, _snd_human_hit, player_is_local);
+		}
+	}
+
+	// Jumping during a wall run throws the player away from the wall.
+	const bool wall_jump_button = (action_flags & _swim) != 0;
+
+	if (!wall_jump_button)
+		player->wall_jump_key_was_down = false;
+
+	const bool can_wall_jump =
+		modern_wall_jump && wall_jump_button &&
+		!player->wall_jump_key_was_down &&
+		player->sprinting &&
+		delta_z > 0 &&
+		(variables->flags & _HORIZONTAL_COLLISION_BIT) &&
+		!(variables->flags & _FEET_BELOW_MEDIA_BIT);
+
+	if (can_wall_jump)
+	{
+		const int64_t push_x = variables->wall_push_i;
+		const int64_t push_y = variables->wall_push_j;
+		const int64_t push_squared =
+			push_x * push_x + push_y * push_y;
+		const uint32 clamped_push_squared =
+			push_squared > static_cast<int64_t>(UINT32_MAX)
+				? UINT32_MAX
+				: static_cast<uint32>(push_squared);
+		const int32 push_magnitude =
+			isqrt(clamped_push_squared);
+
+		if (push_magnitude > 0)
+		{
+			const _fixed wall_jump_strength =
+				(constants->maximum_forward_velocity * 5) / 4;
+
+			// Add outward momentum while retaining movement along the wall.
+			variables->external_velocity.i += static_cast<_fixed>(
+				(push_x * wall_jump_strength) / push_magnitude);
+			variables->external_velocity.j += static_cast<_fixed>(
+				(push_y * wall_jump_strength) / push_magnitude);
+
+			// A little less vertical force than the normal ground jump.
+			variables->external_velocity.k =
+				MAX(variables->external_velocity.k,
+				    (_fixed)(FIXED_ONE / 16));
+
+			play_object_sound(
+				player->object_index,
+				_snd_human_hit,
+				player_is_local);
+
+			// A wall jump consumes the current sprint.
+			player->sprinting = false;
+			player->sprint_ticks_remaining = 0;
+			player->sprint_cooldown_ticks =
+				2 * TICKS_PER_SECOND;
+		}
+
+		player->wall_jump_key_was_down = true;
+	}
+
 	/* change vertical_velocity based on difference between player height and surface height
 		(if we are standing on an object, like a body, take that into account, too: this
 		means a player could actually use bodies as ramps to reach ledges he couldn't
@@ -780,12 +1035,197 @@ static void physics_update(
 		_fixed terminal_velocity= constants->terminal_velocity;
 		
 		if (static_world->environment_flags&_environment_low_gravity) gravity>>= 1;
-		if (variables->flags&_FEET_BELOW_MEDIA_BIT) gravity>>= 1, terminal_velocity>>= 1;
+		if (variables->flags&_FEET_BELOW_MEDIA_BIT)
+		{
+			gravity >>= 1;
+			terminal_velocity >>= 1;
+		}
+		else if (modern_jump)
+		{
+			// Experimental: faster, less floaty airborne movement.
+			gravity = (gravity * 5) / 2;
+			terminal_velocity = (terminal_velocity * 3) / 2;
+		}
+		if (modern_wall_run && player->sprinting &&
+			(variables->flags&_HORIZONTAL_COLLISION_BIT) &&
+			!(variables->flags&_FEET_BELOW_MEDIA_BIT))
+		{
+			gravity= std::max<_fixed>(1, gravity/5);
+			terminal_velocity= std::max<_fixed>(FIXED_ONE/96, terminal_velocity/3);
+		}
 		
-		variables->external_velocity.k= FLOOR(variables->external_velocity.k-gravity, -terminal_velocity);
+		variables->external_velocity.k=
+			FLOOR(variables->external_velocity.k-gravity, -terminal_velocity);
 	}
 
-	if ((action_flags&_swim) && (variables->flags&_HEAD_BELOW_MEDIA_BIT) && variables->external_velocity.k<10*constants->climbing_acceleration)
+	if (modern_ledge_grab && (variables->flags&_DRY_MANTLING_BIT))
+	{
+		const bool continuing=
+			(action_flags&_swim) &&
+			((action_flags&_moving_forward) || (action_flags&_absolute_position_mode)) &&
+			(variables->flags&_HORIZONTAL_COLLISION_BIT) &&
+			variables->ledge_height!=INT16_MAX;
+		if (continuing)
+		{
+			const _fixed destination= WORLD_TO_FIXED(variables->ledge_height)+FIXED_ONE/32;
+			if (variables->position.z<destination)
+				variables->external_velocity.k= std::max<_fixed>(variables->external_velocity.k, FIXED_ONE/24);
+			else
+				variables->flags&= (uint16)~_DRY_MANTLING_BIT;
+		}
+		else variables->flags&= (uint16)~_DRY_MANTLING_BIT;
+	}
+
+	/*
+	 * Modern swimming, water mantling and jumping.
+	 *
+	 * Holding Jump/Swim in water pulls the viewpoint toward a softly
+	 * bobbing position above the surface. Pushing into a wall begins a
+	 * persistent mantle which continues above the water until the wall
+	 * clears, allowing traversal of high pool ledges.
+	 */
+	if (sprintathon && (action_flags & _swim))
+	{
+		const bool feet_in_water =
+			variables->flags & _FEET_BELOW_MEDIA_BIT;
+		const bool already_mantling =
+			variables->flags & _WATER_MANTLING_BIT;
+		const bool pushing_forward =
+			(action_flags & _moving_forward) ||
+			(action_flags & _absolute_position_mode);
+		const bool touching_ledge =
+			variables->flags & _HORIZONTAL_COLLISION_BIT;
+
+		if (modern_swimming && (feet_in_water || already_mantling))
+		{
+			if (feet_in_water)
+			{
+				const _fixed eye_height =
+					variables->actual_height - FIXED_ONE / 8;
+				const _fixed surface_clearance = FIXED_ONE / 16;
+
+				// Faster one-second surface bob.
+				const angle bob_angle = NORMALIZE_ANGLE(
+					(dynamic_world->tick_count * FULL_CIRCLE) /
+						TICKS_PER_SECOND);
+				const _fixed bob_height =
+					((FIXED_ONE / 64) * sine_table[bob_angle]) >>
+						TRIG_SHIFT;
+
+				const _fixed target_feet_height =
+					variables->media_height -
+						eye_height +
+						surface_clearance +
+						bob_height;
+
+				const _fixed surface_error =
+					target_feet_height - variables->position.z;
+
+				// Soft spring and damping toward the surface.
+				variables->external_velocity.k += surface_error / 10;
+				variables->external_velocity.k -=
+					variables->external_velocity.k / 6;
+
+				variables->external_velocity.k = PIN(
+					variables->external_velocity.k,
+					-FIXED_ONE / 18,
+					FIXED_ONE / 18);
+
+				const bool near_surface =
+					std::abs(surface_error) < FIXED_ONE / 3;
+
+				if (near_surface &&
+					pushing_forward &&
+					touching_ledge &&
+					!(variables->flags & _WATER_MANTLING_BIT))
+				{
+					variables->flags |= _WATER_MANTLING_BIT;
+
+					// Bob's effort sound when grabbing the ledge.
+					play_object_sound(
+						player->object_index,
+						_snd_human_hit,
+						player_is_local);
+				}
+			}
+
+			if (variables->flags & _WATER_MANTLING_BIT)
+			{
+				/*
+				 * Allow climbing somewhat above head height, while
+				 * preventing indefinite travel up very tall walls.
+				 */
+				const _fixed maximum_mantle_height =
+					variables->media_height +
+					(constants->height * 2) / 3;
+
+				if (pushing_forward &&
+					touching_ledge &&
+					variables->position.z < maximum_mantle_height)
+				{
+					// Slower sustained mantle rise.
+					variables->external_velocity.k =
+						std::max<_fixed>(
+							variables->external_velocity.k,
+							FIXED_ONE / 24);
+				}
+				else
+				{
+					variables->flags &=
+						(uint16)~_WATER_MANTLING_BIT;
+				}
+			}
+
+			variables->flags |= _JUMP_HELD_BIT;
+		}
+		else if (modern_jump && !feet_in_water)
+		{
+			const bool can_jump =
+				variables->jump_grace_ticks <= jump_grace_limit;
+
+			if (can_jump &&
+				!(variables->flags & _JUMP_HELD_BIT))
+			{
+				variables->external_velocity.k = FIXED_ONE / 13;
+
+                                // Half-Life-style long jump: crouch + forward + jump.
+				if (modern_long_jump && (action_flags & _microphone_button) &&
+                                    (action_flags & _moving_forward))
+                                {
+                                        const angle long_jump_direction =
+                                                NORMALIZE_ANGLE(
+                                                        FIXED_INTEGERAL_PART(
+                                                                variables->direction));
+                                        const _fixed long_jump_boost =
+                                                (constants->maximum_forward_velocity * 3) / 4;
+
+                                        variables->external_velocity.i +=
+                                                (cosine_table[long_jump_direction] *
+                                                 long_jump_boost) >> TRIG_SHIFT;
+                                        variables->external_velocity.j +=
+                                                (sine_table[long_jump_direction] *
+                                                 long_jump_boost) >> TRIG_SHIFT;
+                                }
+				variables->jump_grace_ticks =
+					jump_grace_limit + 1;
+
+				play_object_sound(
+					player->object_index,
+					_snd_human_hit,
+					player_is_local);
+			}
+
+			variables->flags |= _JUMP_HELD_BIT;
+		}
+	}
+	else
+	{
+		variables->flags &=
+			(uint16)~(_JUMP_HELD_BIT | _WATER_MANTLING_BIT);
+	}
+	if ((!sprintathon || !modern_swimming) && (action_flags&_swim) &&
+		(variables->flags&_HEAD_BELOW_MEDIA_BIT) &&
+		variables->external_velocity.k<10*constants->climbing_acceleration)
 	{
 		variables->external_velocity.k+= constants->climbing_acceleration;
 	}
@@ -797,8 +1237,8 @@ static void physics_update(
 	// (this won't enlarge the virtual pitch delta)
 	if (player_is_local)
 	{
-		const fixed_angle min_pitch = FIXED_INTEGERAL_PART(-constants->maximum_elevation) * FIXED_ONE;
-		const fixed_angle max_pitch = FIXED_INTEGERAL_PART(constants->maximum_elevation) * FIXED_ONE;
+		const fixed_angle min_pitch = FIXED_INTEGERAL_PART(-maximum_elevation) * FIXED_ONE;
+		const fixed_angle max_pitch = FIXED_INTEGERAL_PART(maximum_elevation) * FIXED_ONE;
 		const fixed_angle unclamped_physical_pitch = FIXED_INTEGERAL_PART(variables->elevation) * FIXED_ONE;
 		const fixed_angle unclamped_virtual_pitch = unclamped_physical_pitch + vir_aim_delta.pitch;
 		const fixed_angle clamped_physical_pitch = A1_PIN(unclamped_physical_pitch, min_pitch, max_pitch);
@@ -810,7 +1250,10 @@ static void physics_update(
 	
 	// Clamp high-precision physical pitch to physics model limits
 	// (note that the low-precision pitch can slightly violate a non-integral lower bound due to rounding toward -inf)
-	variables->elevation= PIN(variables->elevation, -constants->maximum_elevation, constants->maximum_elevation);
+	variables->elevation= PIN(
+		variables->elevation,
+		-maximum_elevation,
+		maximum_elevation);
 	
 	// If we're explicitly recentering and have reached or passed 0 pitch, stop at 0
 	if ((variables->flags&_RECENTERING_BIT) && !(action_flags&_absolute_pitch_mode))
@@ -831,8 +1274,19 @@ static void physics_update(
 	/* change the player’s x,y position based on his direction and velocities (parallel and perpendicular)  */
 	new_position= variables->position;
 	cosine= cosine_table[FIXED_INTEGERAL_PART(variables->direction)], sine= sine_table[FIXED_INTEGERAL_PART(variables->direction)];
-	new_position.x+= (variables->velocity*cosine-variables->perpendicular_velocity*sine)>>TRIG_SHIFT;
-	new_position.y+= (variables->velocity*sine+variables->perpendicular_velocity*cosine)>>TRIG_SHIFT;
+	_fixed movement_forward = variables->velocity;
+	_fixed movement_sideways = variables->perpendicular_velocity;
+
+	if (sprintathon && player->sprinting)
+	{
+		movement_forward = (movement_forward * 3) / 2;
+		movement_sideways = (movement_sideways * 3) / 2;
+	}
+
+	new_position.x+=
+		(movement_forward*cosine-movement_sideways*sine)>>TRIG_SHIFT;
+	new_position.y+=
+		(movement_forward*sine+movement_sideways*cosine)>>TRIG_SHIFT;
 	
 	/* set above/below floor flags, remember old flags */
 	variables->old_flags= variables->flags;

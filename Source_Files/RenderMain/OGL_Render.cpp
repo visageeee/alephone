@@ -372,8 +372,12 @@ OGL_FogData *CurrFog = NULL;
 bool FogActive()
 {
 	if (!CurrFog) return false;
-	bool FogAllowed = TEST_FLAG(Get_OGL_ConfigureData().Flags,OGL_Flag_Fog);
-	return CurrFog->IsPresent && FogAllowed;
+	bool FogAllowed =
+		TEST_FLAG(Get_OGL_ConfigureData().Flags, OGL_Flag_Fog);
+	bool ForceFog =
+		TEST_FLAG(Get_OGL_ConfigureData().Flags, OGL_Flag_ForceFog);
+
+	return FogAllowed && (CurrFog->IsPresent || ForceFog);
 }
 
 OGL_FogData* OGL_GetCurrFogData()

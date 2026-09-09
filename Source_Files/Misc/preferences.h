@@ -224,6 +224,18 @@ struct input_preferences_data
 	
 	// Limit absolute-mode {yaw, pitch} deltas per tick to +/- {32, 8} instead of {63, 15}
 	bool classic_aim_speed_limits;
+
+	// Optional modern movement and view behavior.
+	bool sprintathon_enabled;
+	int16 sprintathon_mouselook_mode;
+	bool sprintathon_jump;
+	bool sprintathon_crouch;
+	bool sprintathon_sprint;
+	bool sprintathon_long_jump;
+	bool sprintathon_wall_run;
+	bool sprintathon_wall_jump;
+	bool sprintathon_swimming;
+	bool sprintathon_ledge_grab;
 	
 	bool controller_analog;
 	bool controller_aim_inverted;

@@ -69,7 +69,7 @@ const struct physics_constants original_physics_models[NUMBER_OF_PHYSICS_MODELS]
 	
 		(5*FIXED_ONE)/8, (5*FIXED_ONE)/4, 6*FIXED_ONE, (3*FIXED_ONE)/4, /* angular acceleration, deceleration, max */
 		QUARTER_CIRCLE*FIXED_ONE/6, QUARTER_CIRCLE*FIXED_ONE, /* fast angular v, max */
-		QUARTER_CIRCLE*FIXED_ONE/3, /* maximum elevation */
+		(QUARTER_CIRCLE*FIXED_ONE*2)/3, /* maximum elevation */
 		FIXED_ONE/3, /* external angular deceleration */
 	
 		FIXED_ONE/20, FIXED_ONE/10, /* step delta, step amplitude */
@@ -87,7 +87,7 @@ const struct physics_constants original_physics_models[NUMBER_OF_PHYSICS_MODELS]
 	
 		(5*FIXED_ONE)/4, (5*FIXED_ONE)/2, 10*FIXED_ONE, (3*FIXED_ONE)/2, /* angular acceleration, deceleration, max */
 		QUARTER_CIRCLE*FIXED_ONE/6, QUARTER_CIRCLE*FIXED_ONE, /* fast angular v, max */
-		QUARTER_CIRCLE*FIXED_ONE/3, /* maximum elevation */
+		(QUARTER_CIRCLE*FIXED_ONE*2)/3, /* maximum elevation */
 		FIXED_ONE/3, /* external angular deceleration */
 	
 		FIXED_ONE/20, FIXED_ONE/10, /* step delta, step amplitude */

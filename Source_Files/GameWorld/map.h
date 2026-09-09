@@ -1218,7 +1218,8 @@ void ray_to_line_segment(world_point2d *p0, world_point2d *p1, angle theta, worl
 void push_out_line(world_point2d *e0, world_point2d *e1, world_distance d, world_distance line_length);
 bool keep_line_segment_out_of_walls(short polygon_index, world_point3d *p0,
 	world_point3d *p1, world_distance maximum_delta_height, world_distance height, world_distance *adjusted_floor_height,
-	world_distance *adjusted_ceiling_height, short *supporting_polygon_index);
+	world_distance *adjusted_ceiling_height, short *supporting_polygon_index,
+	world_distance *blocked_ledge_height = nullptr);
 
 _fixed get_object_light_intensity(short object_index);
 

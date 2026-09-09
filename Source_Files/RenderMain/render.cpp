@@ -1048,7 +1048,105 @@ static void render_viewer_sprite_layer(view_data *view, RasterizerClass *RasPtr)
 			display_data.horizontal_position, display_data.flip_horizontal, shape_information->world_left, shape_information->world_right);
 		position_sprite_axis(&textured_rectangle.y0, &textured_rectangle.y1, view->screen_height, view->screen_height, display_data.vertical_positioning_mode,
 			display_data.vertical_position, display_data.flip_vertical, -shape_information->world_top, -shape_information->world_bottom);
+
+		if (input_preferences->sprintathon_enabled)
+		{
+		// Experimental: shrink first-person weapon around bottom-centre.
+		constexpr int weapon_scale_percent = 82;
+		const int weapon_anchor_x = view->screen_width / 2;
+		const int weapon_anchor_y = view->screen_height;
+		textured_rectangle.x0 = weapon_anchor_x + (textured_rectangle.x0 - weapon_anchor_x) * weapon_scale_percent / 100;
+		textured_rectangle.x1 = weapon_anchor_x + (textured_rectangle.x1 - weapon_anchor_x) * weapon_scale_percent / 100;
+		textured_rectangle.y0 = weapon_anchor_y + (textured_rectangle.y0 - weapon_anchor_y) * weapon_scale_percent / 100;
+		textured_rectangle.y1 = weapon_anchor_y + (textured_rectangle.y1 - weapon_anchor_y) * weapon_scale_percent / 100;
+
+		// Subtle viewmodel sway opposite the current camera movement.
+		const int horizontal_velocity =
+			FIXED_INTEGERAL_PART(
+				local_player->variables.angular_velocity);
+		const int vertical_velocity =
+			FIXED_INTEGERAL_PART(
+				local_player->variables.vertical_angular_velocity);
+
+		/*
+		 * Stronger viewmodel sway, scaled with resolution.
+		 *
+		 * Static visual state is intentionally renderer-local: it does
+		 * not affect gameplay, networking or replay determinism.
+		 */
+		const int maximum_sway_x = view->screen_width / 16;
+		const int maximum_sway_y = view->screen_height / 14;
+
+		const int target_sway_x = A1_PIN(
+			(-horizontal_velocity * view->screen_width) / 256,
+			-maximum_sway_x,
+			maximum_sway_x);
+		const int target_sway_y = A1_PIN(
+			(vertical_velocity * view->screen_height) / 192,
+			-maximum_sway_y,
+			maximum_sway_y);
+
+		static float smooth_sway_x = 0.0f;
+		static float smooth_sway_y = 0.0f;
+
+		// Lower values are smoother but produce more visual lag.
+		constexpr float sway_follow_speed = 0.14f;
+
+		smooth_sway_x +=
+			(target_sway_x - smooth_sway_x) * sway_follow_speed;
+		smooth_sway_y +=
+			(target_sway_y - smooth_sway_y) * sway_follow_speed;
+
+		const int weapon_sway_x =
+			static_cast<int>(smooth_sway_x);
+		const int weapon_sway_y =
+			static_cast<int>(smooth_sway_y);
+
+		textured_rectangle.x0 += weapon_sway_x;
+		textured_rectangle.x1 += weapon_sway_x;
+		textured_rectangle.y0 += weapon_sway_y;
+		textured_rectangle.y1 += weapon_sway_y;
 		
+		// Smoothly lower the weapon while sprinting.
+		static float sprint_weapon_lower = 0.0f;
+		const float sprint_lower_target =
+			(current_player && current_player->sprinting)
+				? static_cast<float>(view->screen_height) / 8.0f
+				: 0.0f;
+
+		sprint_weapon_lower +=
+			(sprint_lower_target - sprint_weapon_lower) * 0.16f;
+
+		const short sprint_lower_offset =
+			static_cast<short>(sprint_weapon_lower);
+
+		textured_rectangle.y0 += sprint_lower_offset;
+		textured_rectangle.y1 += sprint_lower_offset;
+
+		// Quick side-to-side weapon swing while sprinting.
+		static float sprint_sway_amount = 0.0f;
+
+		const float sprint_sway_target =
+			(current_player && current_player->sprinting)
+				? 1.0f
+				: 0.0f;
+
+		sprint_sway_amount +=
+			(sprint_sway_target - sprint_sway_amount) * 0.12f;
+
+		// Time-based motion: approximately 1.25 swings per second.
+		const float sprint_sway_phase =
+			static_cast<float>(machine_tick_count()) * 0.008f;
+
+		const short sprint_sway_offset = static_cast<short>(
+			std::sin(sprint_sway_phase) *
+			(static_cast<float>(view->screen_width) / 30.0f) *
+			sprint_sway_amount);
+
+		textured_rectangle.x0 += sprint_sway_offset;
+		textured_rectangle.x1 += sprint_sway_offset;
+		}
+
 		/* set rectangle bitmap and shading table */
 		extended_get_shape_bitmap_and_shading_table(display_data.collection, display_data.low_level_shape_index, &textured_rectangle.texture, &textured_rectangle.shading_tables, view->shading_mode);
 		if (!textured_rectangle.texture) continue;

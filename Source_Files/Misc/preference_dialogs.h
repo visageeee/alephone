@@ -45,6 +45,7 @@ protected:
 	
 	ToggleWidget*		m_zBufferWidget;
 	ToggleWidget*		m_fogWidget;
+	ToggleWidget*		m_forceFogWidget;
 	ToggleWidget*		m_colourEffectsWidget;
 	ToggleWidget*		m_transparentLiquidsWidget;
 	ToggleWidget*		m_3DmodelsWidget;

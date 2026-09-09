@@ -1793,10 +1793,10 @@ const int NUM_KEYS = 21;
 
 static const char *action_name[NUM_KEYS] = {
 	"Move Forward", "Move Backward", "Turn Left", "Turn Right", "Sidestep Left", "Sidestep Right",
-	"Glance Left", "Glance Right", "Look Up", "Look Down", "Recenter View",
+	"Glance Left", "Glance Right", "Look Up", "Look Down", "Jump / Swim",
 	"Previous Weapon", "Next Weapon", "Trigger", "2nd Trigger",
-	"Turn -> Sidestep", "Run/Swim", "Move -> Look",
-	"Action", "Auto Map", "Aux Trigger"
+	"Turn -> Sidestep", "Run/Swim", "Sprint",
+	"Action", "Auto Map", "Crouch"
 };
 
 static key_binding_map default_key_bindings = {
@@ -2602,7 +2602,7 @@ static void controls_dialog(void *arg)
 	
 	tab_placer* tabs = new tab_placer();
 	
-	std::vector<std::string> labels = { "AIM", "MOVE", "ACTIONS", "HOTKEYS", "INTERFACE", "OTHER" };
+	std::vector<std::string> labels = { "AIM", "MOVE", "ACTIONS", "SPRINTATHON", "HOTKEYS", "INTERFACE", "OTHER" };
 	w_tab *tab_w = new w_tab(labels, tabs);
 	
 	placer->dual_add(tab_w, d);
@@ -2847,6 +2847,59 @@ static void controls_dialog(void *arg)
 	actions->dual_add(new w_static_text("network play.  Turning it OFF will also disable"), d);
 	actions->dual_add(new w_static_text("film recording for single-player games."), d);
 
+	vertical_placer *sprintathon = new vertical_placer();
+	table_placer *sprintathon_options = new table_placer(2, get_theme_space(ITEM_WIDGET), true);
+	sprintathon_options->col_flags(0, placeable::kAlignRight);
+
+	w_toggle *sprintathon_w = new w_toggle(input_preferences->sprintathon_enabled);
+	sprintathon_options->dual_add(sprintathon_w->label("Enable Sprintathon Movement"), d);
+	sprintathon_options->dual_add(sprintathon_w, d);
+
+	w_toggle *jump_w = new w_toggle(input_preferences->sprintathon_jump);
+	sprintathon_options->dual_add(jump_w->label("Jumping"), d);
+	sprintathon_options->dual_add(jump_w, d);
+	w_toggle *crouch_w = new w_toggle(input_preferences->sprintathon_crouch);
+	sprintathon_options->dual_add(crouch_w->label("Crouching"), d);
+	sprintathon_options->dual_add(crouch_w, d);
+	w_toggle *sprint_w = new w_toggle(input_preferences->sprintathon_sprint);
+	sprintathon_options->dual_add(sprint_w->label("Sprinting"), d);
+	sprintathon_options->dual_add(sprint_w, d);
+	w_toggle *long_jump_w = new w_toggle(input_preferences->sprintathon_long_jump);
+	sprintathon_options->dual_add(long_jump_w->label("Crouch Long-Jump"), d);
+	sprintathon_options->dual_add(long_jump_w, d);
+	w_toggle *wall_run_w = new w_toggle(input_preferences->sprintathon_wall_run);
+	sprintathon_options->dual_add(wall_run_w->label("Wall-Running"), d);
+	sprintathon_options->dual_add(wall_run_w, d);
+	w_toggle *wall_jump_w = new w_toggle(input_preferences->sprintathon_wall_jump);
+	sprintathon_options->dual_add(wall_jump_w->label("Wall-Jumping"), d);
+	sprintathon_options->dual_add(wall_jump_w, d);
+	w_toggle *swimming_w = new w_toggle(input_preferences->sprintathon_swimming);
+	sprintathon_options->dual_add(swimming_w->label("Modern Swimming"), d);
+	sprintathon_options->dual_add(swimming_w, d);
+	w_toggle *ledge_grab_w = new w_toggle(input_preferences->sprintathon_ledge_grab);
+	sprintathon_options->dual_add(ledge_grab_w->label("Ledge-Grabbing"), d);
+	sprintathon_options->dual_add(ledge_grab_w, d);
+
+	static const char* mouselook_range_labels[] = {
+		"Original (30 degrees)",
+		"45 degrees",
+		"60 degrees",
+		"75 degrees",
+		"Full Vertical",
+		nullptr
+	};
+	w_select *extended_mouselook_w = new w_select(
+		input_preferences->sprintathon_mouselook_mode,
+		mouselook_range_labels);
+	sprintathon_options->dual_add(extended_mouselook_w->label("Mouselook Range"), d);
+	sprintathon_options->dual_add(extended_mouselook_w, d);
+
+	sprintathon->add(new w_spacer(), true);
+	sprintathon->add(sprintathon_options, true);
+	sprintathon->add(new w_spacer(), true);
+	sprintathon->dual_add(new w_static_text("Sprintathon includes jumping, crouching, sprinting,"), d);
+	sprintathon->dual_add(new w_static_text("long jumps, wall movement, mantling and modern swimming."), d);
+
 	vertical_placer* hotkeys = new vertical_placer();
 	table_placer* hotkey_table = new table_placer(4, get_theme_space(ITEM_WIDGET), true);
 	hotkey_table->col_flags(0, placeable::kAlignRight);
@@ -2990,6 +3043,7 @@ static void controls_dialog(void *arg)
 	tabs->add(look, true);
 	tabs->add(move, true);
 	tabs->add(actions, true);
+	tabs->add(sprintathon, true);
 	tabs->add(hotkeys, true);
 	tabs->add(iface, true);
 	tabs->add(other, true);
@@ -3029,6 +3083,30 @@ static void controls_dialog(void *arg)
 
 		if (!(weapon_w->get_selection())) flags |= _inputmod_dont_switch_to_new_weapon;
 		if (!(auto_recenter_w->get_selection())) flags |= _inputmod_dont_auto_recenter;
+
+		bool sprintathon_enabled = sprintathon_w->get_selection();
+		if (input_preferences->sprintathon_enabled != sprintathon_enabled) {
+			input_preferences->sprintathon_enabled = sprintathon_enabled;
+			changed = true;
+		}
+		int16 mouselook_mode = extended_mouselook_w->get_selection();
+		if (input_preferences->sprintathon_mouselook_mode != mouselook_mode) {
+			input_preferences->sprintathon_mouselook_mode = mouselook_mode;
+			changed = true;
+		}
+
+#define SAVE_SPRINTATHON_TOGGLE(field, widget) \
+		do { bool value = widget->get_selection(); \
+		if (input_preferences->field != value) { input_preferences->field = value; changed = true; } } while (0)
+		SAVE_SPRINTATHON_TOGGLE(sprintathon_jump, jump_w);
+		SAVE_SPRINTATHON_TOGGLE(sprintathon_crouch, crouch_w);
+		SAVE_SPRINTATHON_TOGGLE(sprintathon_sprint, sprint_w);
+		SAVE_SPRINTATHON_TOGGLE(sprintathon_long_jump, long_jump_w);
+		SAVE_SPRINTATHON_TOGGLE(sprintathon_wall_run, wall_run_w);
+		SAVE_SPRINTATHON_TOGGLE(sprintathon_wall_jump, wall_jump_w);
+		SAVE_SPRINTATHON_TOGGLE(sprintathon_swimming, swimming_w);
+		SAVE_SPRINTATHON_TOGGLE(sprintathon_ledge_grab, ledge_grab_w);
+#undef SAVE_SPRINTATHON_TOGGLE
 		
 		if (flags != input_preferences->modifiers) {
 			input_preferences->modifiers = flags;
@@ -3907,6 +3985,16 @@ InfoTree input_preferences_tree()
 	root.put_attr("sens_vertical", input_preferences->sens_vertical);
 	root.put_attr("classic_vertical_aim", input_preferences->classic_vertical_aim);
 	root.put_attr("classic_aim_speed_limits", input_preferences->classic_aim_speed_limits);
+	root.put_attr("sprintathon_enabled", input_preferences->sprintathon_enabled);
+	root.put_attr("sprintathon_mouselook_mode", input_preferences->sprintathon_mouselook_mode);
+	root.put_attr("sprintathon_jump", input_preferences->sprintathon_jump);
+	root.put_attr("sprintathon_crouch", input_preferences->sprintathon_crouch);
+	root.put_attr("sprintathon_sprint", input_preferences->sprintathon_sprint);
+	root.put_attr("sprintathon_long_jump", input_preferences->sprintathon_long_jump);
+	root.put_attr("sprintathon_wall_run", input_preferences->sprintathon_wall_run);
+	root.put_attr("sprintathon_wall_jump", input_preferences->sprintathon_wall_jump);
+	root.put_attr("sprintathon_swimming", input_preferences->sprintathon_swimming);
+	root.put_attr("sprintathon_ledge_grab", input_preferences->sprintathon_ledge_grab);
 	root.put_attr("mouse_accel_type", input_preferences->mouse_accel_type);
 	root.put_attr("mouse_accel_scale", input_preferences->mouse_accel_scale);
 	root.put_attr("raw_mouse_input", input_preferences->raw_mouse_input);
@@ -4246,6 +4334,16 @@ static void default_input_preferences(input_preferences_data *preferences)
 	preferences->extra_mouse_precision = true;
 	preferences->classic_vertical_aim = false;
 	preferences->classic_aim_speed_limits = false;
+	preferences->sprintathon_enabled = true;
+	preferences->sprintathon_mouselook_mode = 2;
+	preferences->sprintathon_jump = true;
+	preferences->sprintathon_crouch = true;
+	preferences->sprintathon_sprint = true;
+	preferences->sprintathon_long_jump = true;
+	preferences->sprintathon_wall_run = true;
+	preferences->sprintathon_wall_jump = true;
+	preferences->sprintathon_swimming = true;
+	preferences->sprintathon_ledge_grab = true;
 
 	preferences->controller_aim_inverted = false;
 	preferences->controller_analog = true;
@@ -4807,6 +4905,17 @@ void parse_input_preferences(InfoTree root, std::string version)
 	else if (version < "20190317")
 		input_preferences->classic_vertical_aim = false;
 	root.read_attr("classic_vertical_aim", input_preferences->classic_vertical_aim);
+	root.read_attr("sprintathon_enabled", input_preferences->sprintathon_enabled);
+	root.read_attr_bounded<int16>("sprintathon_mouselook_mode",
+		input_preferences->sprintathon_mouselook_mode, 0, 4);
+	root.read_attr("sprintathon_jump", input_preferences->sprintathon_jump);
+	root.read_attr("sprintathon_crouch", input_preferences->sprintathon_crouch);
+	root.read_attr("sprintathon_sprint", input_preferences->sprintathon_sprint);
+	root.read_attr("sprintathon_long_jump", input_preferences->sprintathon_long_jump);
+	root.read_attr("sprintathon_wall_run", input_preferences->sprintathon_wall_run);
+	root.read_attr("sprintathon_wall_jump", input_preferences->sprintathon_wall_jump);
+	root.read_attr("sprintathon_swimming", input_preferences->sprintathon_swimming);
+	root.read_attr("sprintathon_ledge_grab", input_preferences->sprintathon_ledge_grab);
 	
 	if (!root.read_attr("classic_aim_speed_limits", input_preferences->classic_aim_speed_limits))
 	{

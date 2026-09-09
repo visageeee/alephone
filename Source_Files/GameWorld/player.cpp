@@ -136,6 +136,7 @@ May 22, 2003 (Woody Zenfell):
 #include "cseries.h"
 #include "map.h"
 #include "player.h"
+#include "preferences.h"
 #include "monster_definitions.h"
 #include "monsters.h"
 #include "interface.h"
@@ -686,9 +687,67 @@ void update_players(ActionQueues* inActionQueuesToUse, bool inPredictive)
 			action_flags= 0;
 		}
 		
+		bool IsSwimming = TEST_FLAG(
+			player->variables.flags,
+			_HEAD_BELOW_MEDIA_BIT) && player_settings.CanSwim;
+
 		player->run_key = action_flags & _run_dont_walk;
-		
-		bool IsSwimming = TEST_FLAG(player->variables.flags,_HEAD_BELOW_MEDIA_BIT) && player_settings.CanSwim;
+
+		const bool sprint_key_down = input_preferences->sprintathon_enabled &&
+			input_preferences->sprintathon_sprint &&
+			(action_flags & _look_dont_turn) != 0;
+
+		const bool sprint_requested =
+			sprint_key_down &&
+			(action_flags & _moving_forward) &&
+			!(action_flags & _microphone_button) &&
+			!TEST_FLAG(player->variables.flags, _FEET_BELOW_MEDIA_BIT);
+
+		const uint16 sprint_duration =
+			3 * TICKS_PER_SECOND;
+		const uint16 sprint_cooldown =
+			2 * TICKS_PER_SECOND;
+
+		// Releasing the key permits a new sprint after cooldown.
+		if (!sprint_key_down)
+			player->sprint_key_was_down = false;
+
+		if (player->sprint_cooldown_ticks > 0)
+			player->sprint_cooldown_ticks--;
+
+		// Begin only on a fresh press when the cooldown has finished.
+		if (sprint_requested &&
+		    !player->sprint_key_was_down &&
+		    player->sprint_cooldown_ticks == 0)
+		{
+			player->sprint_ticks_remaining = sprint_duration;
+			player->sprint_key_was_down = true;
+		}
+
+		player->sprinting =
+			sprint_requested &&
+			player->sprint_ticks_remaining > 0 &&
+			player->sprint_cooldown_ticks == 0;
+
+		if (player->sprinting)
+		{
+			player->sprint_ticks_remaining--;
+
+			// Sprint implies running and blocks both weapon triggers.
+			action_flags |= _run_dont_walk;
+			action_flags &=
+				~(_left_trigger_state | _right_trigger_state);
+
+			if (player->sprint_ticks_remaining == 0)
+				player->sprint_cooldown_ticks = sprint_cooldown;
+		}
+		else if (!sprint_key_down &&
+		         player->sprint_ticks_remaining > 0)
+		{
+			// Releasing early ends the burst and starts cooldown.
+			player->sprint_ticks_remaining = 0;
+			player->sprint_cooldown_ticks = sprint_cooldown;
+		}
 
 		// if we’ve got the ball we can’t run (that sucks)
 		// Benad: also works with _game_of_rugby and _game_of_capture_the_flag
@@ -2562,4 +2621,3 @@ void parse_mml_player(const InfoTree& root)
 		}
 	}
 }
-

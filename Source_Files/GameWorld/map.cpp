@@ -1756,7 +1756,8 @@ bool keep_line_segment_out_of_walls(
 	world_distance height, /* the height of the object being moved */
 	world_distance *adjusted_floor_height,
 	world_distance *adjusted_ceiling_height,
-	short *supporting_polygon_index)
+	short *supporting_polygon_index,
+	world_distance *blocked_ledge_height)
 {
 	struct polygon_data *polygon= get_polygon_data(polygon_index);
 	short *indexes= get_map_indexes(polygon->first_exclusion_zone_index, polygon->line_exclusion_zone_count+polygon->point_exclusion_zone_count);
@@ -1764,6 +1765,7 @@ bool keep_line_segment_out_of_walls(
 	bool clipped= false;
 	short state;
 	short i;
+	if (blocked_ledge_height) *blocked_ledge_height = INT16_MAX;
 
 	// Skip the whole thing if exclusion-zone indexes were not found
 	if (!indexes)
@@ -1824,6 +1826,13 @@ bool keep_line_segment_out_of_walls(
 						adjacent_polygon->ceiling_height-p1->z<height ||
 						lowest_ceiling-highest_floor<height)
 					{
+						if (blocked_ledge_height && adjacent_polygon &&
+							adjacent_polygon->floor_height-p1->z>maximum_delta_height &&
+							adjacent_polygon->ceiling_height-adjacent_polygon->floor_height>=height &&
+							adjacent_polygon->floor_height<*blocked_ledge_height)
+						{
+							*blocked_ledge_height= adjacent_polygon->floor_height;
+						}
 					//	if (unsigned_line_index==104) dprintf("inside solid line #%d (%p) in polygon #%d", unsigned_line_index, line, polygon_index);
 						
 						switch (state)

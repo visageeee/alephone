@@ -86,7 +86,7 @@ static struct key_definition standard_key_definitions[]=
 	/* dcv vertical looking */
 	{SDL_SCANCODE_D, _looking_up},
 	{SDL_SCANCODE_C, _looking_down},
-	{SDL_SCANCODE_V, _looking_center},
+	{SDL_SCANCODE_V, static_cast<uint32>(_swim)},
 	
 	/* KP7/KP9 for weapon cycling */
 	{SDL_SCANCODE_KP_7, _cycle_weapons_backward},

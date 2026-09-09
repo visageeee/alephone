@@ -267,7 +267,11 @@ enum /* player flag bits */
 	_BELOW_GROUND_BIT= 0x2000,
 	_FEET_BELOW_MEDIA_BIT= 0x1000,
 	_HEAD_BELOW_MEDIA_BIT= 0x0800,
-	_STEP_PERIOD_BIT= 0x0400
+	_STEP_PERIOD_BIT= 0x0400,
+	_JUMP_HELD_BIT= 0x0200,
+	_HORIZONTAL_COLLISION_BIT= 0x0100,
+	_WATER_MANTLING_BIT= 0x0080,
+	_DRY_MANTLING_BIT= 0x0040
 };
 
 struct physics_variables
@@ -277,6 +281,7 @@ struct physics_variables
 	_fixed velocity, perpendicular_velocity; /* in and perpendicular to direction, respectively */
 	fixed_point3d last_position, position;
 	_fixed actual_height;
+	uint8 jump_grace_ticks;
 
 	/* used by mask_in_absolute_positioning_information (because it is not really absolute) to
 		keep track of where we’re going */
@@ -292,6 +297,8 @@ struct physics_variables
 	_fixed floor_height; /* the height of the floor on the polygon where we ended up last time */
 	_fixed ceiling_height; /* same as above, but ceiling height */
 	_fixed media_height; /* media height */
+	_fixed wall_push_i, wall_push_j; /* most recent wall correction direction */
+	world_distance ledge_height; /* floor behind the most recent climbable ledge */
 
 	int16 action; /* what the player’s legs are doing, basically */
 	uint16 old_flags, flags; /* stuff like _RECENTERING */
@@ -416,6 +423,11 @@ struct player_data
 	int16_t hotkey; 			// not serialized, used to store hotkey
 
 	bool run_key;				// not serialized, used by HUD
+	bool sprinting;				// not serialized, lowers first-person weapon
+	uint16 sprint_ticks_remaining;		// available sprint time
+	uint16 sprint_cooldown_ticks;		// delay before sprint can restart
+	bool sprint_key_was_down;			// requires release before restarting
+	bool wall_jump_key_was_down;			// prevents repeated wall jumps
 
 	int32_t ticks_at_death;		// not serialized
 
@@ -579,4 +591,3 @@ void parse_mml_player(const InfoTree& root);
 void reset_mml_player();
 
 #endif
-

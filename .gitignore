@@ -36,3 +36,6 @@ lib*.a
 .vscode/
 .cache/
 compile_commands.json
+
+# Local patch backups
+*.before-*
