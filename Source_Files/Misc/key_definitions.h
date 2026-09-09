@@ -79,18 +79,18 @@ static struct key_definition standard_key_definitions[]=
 	{SDL_SCANCODE_Z, _sidestepping_left},
 	{SDL_SCANCODE_X, _sidestepping_right},
 
-	/* as looking */
-	{SDL_SCANCODE_A, _looking_left},
-	{SDL_SCANCODE_S, _looking_right},
+	/* glance actions have no default keyboard bindings */
+	{SDL_SCANCODE_UNKNOWN, _looking_left},
+	{SDL_SCANCODE_UNKNOWN, _looking_right},
 
 	/* dcv vertical looking */
 	{SDL_SCANCODE_D, _looking_up},
 	{SDL_SCANCODE_C, _looking_down},
 	{SDL_SCANCODE_V, static_cast<uint32>(_swim)},
 	
-	/* KP7/KP9 for weapon cycling */
-	{SDL_SCANCODE_KP_7, _cycle_weapons_backward},
-	{SDL_SCANCODE_KP_9, _cycle_weapons_forward},
+	/* Q/E for weapon cycling */
+	{SDL_SCANCODE_Q, _cycle_weapons_backward},
+	{SDL_SCANCODE_E, _cycle_weapons_forward},
 	
 	/* space for primary trigger, option for alternate trigger */
 	{SDL_SCANCODE_SPACE, _left_trigger_state},
