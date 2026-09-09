@@ -996,9 +996,10 @@ static void physics_update(
 
 	if (modern_slide && player->slide_ticks_remaining>0)
 	{
+		const int slide_duration= (TICKS_PER_SECOND*3)/4;
 		const _fixed slide_speed=
 			(constants->maximum_forward_velocity*player->slide_ticks_remaining*2)/
-			std::max<int>(1, TICKS_PER_SECOND/2);
+			std::max<int>(1, slide_duration);
 		variables->velocity= std::max<_fixed>(slide_speed,
 			constants->maximum_forward_velocity/3);
 		variables->perpendicular_velocity= 0;

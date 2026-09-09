@@ -704,7 +704,7 @@ void update_players(ActionQueues* inActionQueuesToUse, bool inPredictive)
 			!TEST_FLAG(player->variables.flags, _FEET_BELOW_MEDIA_BIT);
 
 		const uint16 sprint_duration =
-			3 * TICKS_PER_SECOND;
+			6 * TICKS_PER_SECOND;
 		const uint16 sprint_cooldown =
 			2 * TICKS_PER_SECOND;
 		const bool crouch_key_down =
@@ -720,7 +720,8 @@ void update_players(ActionQueues* inActionQueuesToUse, bool inPredictive)
 			!TEST_FLAG(player->variables.flags, _ABOVE_GROUND_BIT) &&
 			!TEST_FLAG(player->variables.flags, _FEET_BELOW_MEDIA_BIT))
 		{
-			player->slide_ticks_remaining = TICKS_PER_SECOND / 2;
+			player->slide_ticks_remaining =
+				(TICKS_PER_SECOND * 3) / 4;
 			player->slide_punch_pending = true;
 			player->sprinting = false;
 			player->sprint_ticks_remaining = 0;
