@@ -1830,7 +1830,7 @@ static key_binding_map default_key_bindings = {
 	{ 9, { SDL_SCANCODE_DOWN,
 		static_cast<SDL_Scancode>(AO_SCANCODE_BASE_JOYSTICK_AXIS_POSITIVE + SDL_CONTROLLER_AXIS_RIGHTY)
 	} },
-	{ 10, { SDL_SCANCODE_V,
+	{ 10, { SDL_SCANCODE_SPACE,
 		static_cast<SDL_Scancode>(AO_SCANCODE_BASE_JOYSTICK_BUTTON + SDL_CONTROLLER_BUTTON_RIGHTSTICK)
 	} },
 	{ 11, { SDL_SCANCODE_F,
@@ -1841,12 +1841,10 @@ static key_binding_map default_key_bindings = {
 		static_cast<SDL_Scancode>(AO_SCANCODE_MOUSESCROLL_DOWN),
 		static_cast<SDL_Scancode>(AO_SCANCODE_BASE_JOYSTICK_BUTTON + SDL_CONTROLLER_BUTTON_RIGHTSHOULDER)
 	} },
-	{ 13, { SDL_SCANCODE_SPACE,
-		static_cast<SDL_Scancode>(AO_SCANCODE_BASE_MOUSE_BUTTON + SDL_BUTTON_LEFT - 1),
+	{ 13, { static_cast<SDL_Scancode>(AO_SCANCODE_BASE_MOUSE_BUTTON + SDL_BUTTON_LEFT - 1),
 		static_cast<SDL_Scancode>(AO_SCANCODE_BASE_JOYSTICK_AXIS_POSITIVE + SDL_CONTROLLER_AXIS_TRIGGERRIGHT)
 	} },
-	{ 14, { SDL_SCANCODE_LSHIFT,
-		static_cast<SDL_Scancode>(AO_SCANCODE_BASE_MOUSE_BUTTON + SDL_BUTTON_RIGHT - 1),
+	{ 14, { static_cast<SDL_Scancode>(AO_SCANCODE_BASE_MOUSE_BUTTON + SDL_BUTTON_RIGHT - 1),
 		static_cast<SDL_Scancode>(AO_SCANCODE_BASE_JOYSTICK_AXIS_POSITIVE + SDL_CONTROLLER_AXIS_TRIGGERLEFT)
 	} },
 	{ 15, { SDL_SCANCODE_LALT
@@ -1854,7 +1852,7 @@ static key_binding_map default_key_bindings = {
 	{ 16, { SDL_SCANCODE_LCTRL,
 		static_cast<SDL_Scancode>(AO_SCANCODE_BASE_JOYSTICK_BUTTON + SDL_CONTROLLER_BUTTON_LEFTSTICK)
 	} },
-	{ 17, { SDL_SCANCODE_LGUI
+	{ 17, { SDL_SCANCODE_LSHIFT
 	} },
 	{ 18, { SDL_SCANCODE_TAB,
 		static_cast<SDL_Scancode>(AO_SCANCODE_BASE_JOYSTICK_BUTTON + SDL_CONTROLLER_BUTTON_A)
@@ -1862,7 +1860,7 @@ static key_binding_map default_key_bindings = {
 	{ 19, { SDL_SCANCODE_M,
 		static_cast<SDL_Scancode>(AO_SCANCODE_BASE_JOYSTICK_BUTTON + SDL_CONTROLLER_BUTTON_X)
 	} },
-	{ 20, { SDL_SCANCODE_GRAVE,
+	{ 20, { SDL_SCANCODE_C,
 		static_cast<SDL_Scancode>(AO_SCANCODE_BASE_JOYSTICK_BUTTON + SDL_CONTROLLER_BUTTON_Y)
 	} },
 };
@@ -4229,7 +4227,7 @@ static void default_graphics_preferences(graphics_preferences_data *preferences)
 	preferences->screen_mode.high_resolution = true;
 	preferences->screen_mode.fullscreen = true;
 	preferences->screen_mode.fix_h_not_v = true;
-	preferences->screen_mode.bobbing_type = BobbingType::camera_and_weapon;
+	preferences->screen_mode.bobbing_type = BobbingType::weapon_only;
 	preferences->screen_mode.bit_depth = 32;
 	
 	preferences->screen_mode.draw_every_other_line= false;
@@ -4238,9 +4236,15 @@ static void default_graphics_preferences(graphics_preferences_data *preferences)
 	
 	OGL_SetDefaults(preferences->OGL_Configure);
 
+	// Sprintathon uses proper 3D perspective by default.
+	preferences->OGL_Configure.Flags &= ~OGL_Flag_MimicSW;
+
+	// Make sprites tilt vertically with the camera.
+	preferences->OGL_Configure.BillboardXY = true;
+
 	preferences->software_alpha_blending = _sw_alpha_off;
 	preferences->software_sdl_driver = _sw_driver_default;
-	preferences->fps_target = 30;
+	preferences->fps_target = 60;
 
 	preferences->movie_export_video_quality = 50;
 	preferences->movie_export_audio_quality = 50;
