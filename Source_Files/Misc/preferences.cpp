@@ -2862,6 +2862,9 @@ static void controls_dialog(void *arg)
 	w_toggle *sprint_w = new w_toggle(input_preferences->sprintathon_sprint);
 	sprintathon_options->dual_add(sprint_w->label("Sprinting"), d);
 	sprintathon_options->dual_add(sprint_w, d);
+	w_toggle *slide_w = new w_toggle(input_preferences->sprintathon_slide);
+	sprintathon_options->dual_add(slide_w->label("Sprint Sliding"), d);
+	sprintathon_options->dual_add(slide_w, d);
 	w_toggle *long_jump_w = new w_toggle(input_preferences->sprintathon_long_jump);
 	sprintathon_options->dual_add(long_jump_w->label("Crouch Long-Jump"), d);
 	sprintathon_options->dual_add(long_jump_w, d);
@@ -2895,7 +2898,7 @@ static void controls_dialog(void *arg)
 	sprintathon->add(new w_spacer(), true);
 	sprintathon->add(sprintathon_options, true);
 	sprintathon->add(new w_spacer(), true);
-	sprintathon->dual_add(new w_static_text("Sprintathon includes jumping, crouching, sprinting,"), d);
+	sprintathon->dual_add(new w_static_text("Sprintathon includes jumping, crouching, sprinting, sliding,"), d);
 	sprintathon->dual_add(new w_static_text("long jumps, wall movement, mantling and modern swimming."), d);
 
 	vertical_placer* hotkeys = new vertical_placer();
@@ -3099,6 +3102,7 @@ static void controls_dialog(void *arg)
 		SAVE_SPRINTATHON_TOGGLE(sprintathon_jump, jump_w);
 		SAVE_SPRINTATHON_TOGGLE(sprintathon_crouch, crouch_w);
 		SAVE_SPRINTATHON_TOGGLE(sprintathon_sprint, sprint_w);
+		SAVE_SPRINTATHON_TOGGLE(sprintathon_slide, slide_w);
 		SAVE_SPRINTATHON_TOGGLE(sprintathon_long_jump, long_jump_w);
 		SAVE_SPRINTATHON_TOGGLE(sprintathon_wall_run, wall_run_w);
 		SAVE_SPRINTATHON_TOGGLE(sprintathon_wall_jump, wall_jump_w);
@@ -3988,6 +3992,7 @@ InfoTree input_preferences_tree()
 	root.put_attr("sprintathon_jump", input_preferences->sprintathon_jump);
 	root.put_attr("sprintathon_crouch", input_preferences->sprintathon_crouch);
 	root.put_attr("sprintathon_sprint", input_preferences->sprintathon_sprint);
+	root.put_attr("sprintathon_slide", input_preferences->sprintathon_slide);
 	root.put_attr("sprintathon_long_jump", input_preferences->sprintathon_long_jump);
 	root.put_attr("sprintathon_wall_run", input_preferences->sprintathon_wall_run);
 	root.put_attr("sprintathon_wall_jump", input_preferences->sprintathon_wall_jump);
@@ -4343,6 +4348,7 @@ static void default_input_preferences(input_preferences_data *preferences)
 	preferences->sprintathon_jump = true;
 	preferences->sprintathon_crouch = true;
 	preferences->sprintathon_sprint = true;
+	preferences->sprintathon_slide = true;
 	preferences->sprintathon_long_jump = true;
 	preferences->sprintathon_wall_run = true;
 	preferences->sprintathon_wall_jump = true;
@@ -4915,6 +4921,7 @@ void parse_input_preferences(InfoTree root, std::string version)
 	root.read_attr("sprintathon_jump", input_preferences->sprintathon_jump);
 	root.read_attr("sprintathon_crouch", input_preferences->sprintathon_crouch);
 	root.read_attr("sprintathon_sprint", input_preferences->sprintathon_sprint);
+	root.read_attr("sprintathon_slide", input_preferences->sprintathon_slide);
 	root.read_attr("sprintathon_long_jump", input_preferences->sprintathon_long_jump);
 	root.read_attr("sprintathon_wall_run", input_preferences->sprintathon_wall_run);
 	root.read_attr("sprintathon_wall_jump", input_preferences->sprintathon_wall_jump);

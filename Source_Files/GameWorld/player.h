@@ -428,7 +428,11 @@ struct player_data
 	uint16 sprint_cooldown_ticks;		// delay before sprint can restart
 	bool sprint_key_was_down;			// requires release before restarting
 	bool wall_jump_key_was_down;			// prevents repeated wall jumps
-	int16 wall_run_camera_roll;			// signed visual roll, in engine angle units
+	bool crouch_key_was_down;			// edge detection for sprint slide
+	bool slide_punch_pending;			// emit one melee projectile on slide start
+	uint8 slide_ticks_remaining;			// short forced-movement slide
+	int16 sprintathon_camera_roll;		// signed visual roll, in engine angle units
+	int16 sprintathon_camera_pitch;		// visual-only pitch offset
 
 	int32_t ticks_at_death;		// not serialized
 

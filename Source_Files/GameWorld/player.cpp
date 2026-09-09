@@ -707,6 +707,26 @@ void update_players(ActionQueues* inActionQueuesToUse, bool inPredictive)
 			3 * TICKS_PER_SECOND;
 		const uint16 sprint_cooldown =
 			2 * TICKS_PER_SECOND;
+		const bool crouch_key_down =
+			(action_flags & _microphone_button) != 0;
+
+		// Pressing crouch during an established sprint starts one short slide.
+		// Capture this before sprint_requested rejects the crouch input.
+		if (input_preferences->sprintathon_enabled &&
+			input_preferences->sprintathon_slide &&
+			input_preferences->sprintathon_crouch &&
+			player->sprinting && crouch_key_down &&
+			!player->crouch_key_was_down &&
+			!TEST_FLAG(player->variables.flags, _ABOVE_GROUND_BIT) &&
+			!TEST_FLAG(player->variables.flags, _FEET_BELOW_MEDIA_BIT))
+		{
+			player->slide_ticks_remaining = TICKS_PER_SECOND / 2;
+			player->slide_punch_pending = true;
+			player->sprinting = false;
+			player->sprint_ticks_remaining = 0;
+			player->sprint_cooldown_ticks = sprint_cooldown;
+		}
+		player->crouch_key_was_down = crouch_key_down;
 
 		// Releasing the key permits a new sprint after cooldown.
 		if (!sprint_key_down)
@@ -725,6 +745,7 @@ void update_players(ActionQueues* inActionQueuesToUse, bool inPredictive)
 		}
 
 		player->sprinting =
+			player->slide_ticks_remaining == 0 &&
 			sprint_requested &&
 			player->sprint_ticks_remaining > 0 &&
 			player->sprint_cooldown_ticks == 0;
@@ -740,6 +761,12 @@ void update_players(ActionQueues* inActionQueuesToUse, bool inPredictive)
 
 			if (player->sprint_ticks_remaining == 0)
 				player->sprint_cooldown_ticks = sprint_cooldown;
+		}
+		else if (player->slide_ticks_remaining > 0)
+		{
+			// Sliding keeps the weapon triggers locked and retains run animation.
+			action_flags |= _run_dont_walk;
+			action_flags &= ~(_left_trigger_state | _right_trigger_state);
 		}
 		else if (!sprint_key_down &&
 		         player->sprint_ticks_remaining > 0)

@@ -79,6 +79,7 @@ running backwards shouldn’t mean doom in a fistfight
 #include "interface.h"
 #include "monsters.h"
 #include "preferences.h"
+#include "projectiles.h"
 
 #define DONT_REPEAT_DEFINITIONS
 #include "monster_definitions.h"
@@ -180,7 +181,11 @@ void initialize_player_physics_variables(
 	variables->ledge_height= INT16_MAX;
 	variables->actual_height= constants->height;
 	variables->jump_grace_ticks= 0;
-	player->wall_run_camera_roll= 0;
+	player->crouch_key_was_down= false;
+	player->slide_punch_pending= false;
+	player->slide_ticks_remaining= 0;
+	player->sprintathon_camera_roll= 0;
+	player->sprintathon_camera_pitch= 0;
 	
 	variables->step_phase= 0;
 	variables->step_amplitude= 0;
@@ -602,6 +607,7 @@ static void physics_update(
 	const bool modern_crouch = sprintathon && input_preferences->sprintathon_crouch;
 	const bool modern_long_jump = modern_jump && modern_crouch && input_preferences->sprintathon_long_jump;
 	const bool modern_wall_run = sprintathon && input_preferences->sprintathon_wall_run;
+	const bool modern_slide = sprintathon && input_preferences->sprintathon_slide;
 	const bool modern_wall_jump = modern_jump && input_preferences->sprintathon_wall_jump;
 	const bool modern_swimming = sprintathon && input_preferences->sprintathon_swimming;
 	const bool modern_ledge_grab = modern_jump && input_preferences->sprintathon_ledge_grab;
@@ -628,12 +634,25 @@ static void physics_update(
 
 	// Ease in quickly and return a little more gently. Keep a one-unit minimum
 	// step so the fixed-angle value always reaches its target.
-	const int16 roll_difference= target_wall_run_roll-player->wall_run_camera_roll;
+	int16 target_camera_pitch= 0;
+	if (modern_slide && player->slide_ticks_remaining>0)
+	{
+		target_wall_run_roll= (FULL_CIRCLE*6)/360;
+		target_camera_pitch= (FULL_CIRCLE*5)/360;
+	}
+	const int16 roll_difference= target_wall_run_roll-player->sprintathon_camera_roll;
 	if (roll_difference!=0)
 	{
 		int16 roll_step= roll_difference/(target_wall_run_roll ? 3 : 5);
 		if (roll_step==0) roll_step= roll_difference>0 ? 1 : -1;
-		player->wall_run_camera_roll+= roll_step;
+		player->sprintathon_camera_roll+= roll_step;
+	}
+	const int16 pitch_difference= target_camera_pitch-player->sprintathon_camera_pitch;
+	if (pitch_difference!=0)
+	{
+		int16 pitch_step= pitch_difference/(target_camera_pitch ? 3 : 5);
+		if (pitch_step==0) pitch_step= pitch_difference>0 ? 1 : -1;
+		player->sprintathon_camera_pitch+= pitch_step;
 	}
 	if (!modern_swimming) variables->flags&= (uint16)~_WATER_MANTLING_BIT;
 	if (!modern_ledge_grab) variables->flags&= (uint16)~_DRY_MANTLING_BIT;
@@ -693,7 +712,8 @@ static void physics_update(
 		const _fixed standing_height = constants->height;
 		const _fixed crouching_height = constants->height / 2;
 		const _fixed target_height =
-			(action_flags & _microphone_button) ?
+			((action_flags & _microphone_button) ||
+			 player->slide_ticks_remaining>0) ?
 				crouching_height : standing_height;
 		const _fixed crouch_step =
 			std::max<_fixed>(FIXED_ONE / 64, standing_height / 8);
@@ -953,7 +973,8 @@ static void physics_update(
 	 * Acceleration remains responsive, but forward, backward and sideways
 	 * velocity are capped at 60 percent while crouch is held.
 	 */
-	if (modern_crouch && (action_flags & _microphone_button))
+	if (modern_crouch && (action_flags & _microphone_button) &&
+		player->slide_ticks_remaining==0)
 	{
 		const _fixed crouch_forward_limit =
 			(constants->maximum_forward_velocity * 3) / 5;
@@ -971,6 +992,41 @@ static void physics_update(
 			variables->perpendicular_velocity,
 			-crouch_sideways_limit,
 			crouch_sideways_limit);
+	}
+
+	if (modern_slide && player->slide_ticks_remaining>0)
+	{
+		const _fixed slide_speed=
+			(constants->maximum_forward_velocity*player->slide_ticks_remaining*2)/
+			std::max<int>(1, TICKS_PER_SECOND/2);
+		variables->velocity= std::max<_fixed>(slide_speed,
+			constants->maximum_forward_velocity/3);
+		variables->perpendicular_velocity= 0;
+
+		if (player->slide_punch_pending)
+		{
+			world_point3d origin= player->camera_location;
+			world_point3d destination= origin;
+			translate_point3d(&origin, WORLD_ONE/8,
+				player->facing, player->elevation);
+			destination= origin;
+			translate_point3d(&destination, WORLD_ONE_HALF,
+				player->facing, player->elevation);
+			world_point3d vector;
+			vector.x= destination.x-origin.x;
+			vector.y= destination.y-origin.y;
+			vector.z= destination.z-origin.z;
+			new_projectile(&origin, player->camera_polygon_index, &vector, 0,
+				_projectile_fist, player->monster_index, _monster_marine,
+				NONE, (FIXED_ONE*3)/2);
+			player->slide_punch_pending= false;
+		}
+		player->slide_ticks_remaining--;
+		if (player->slide_ticks_remaining==0)
+		{
+			variables->velocity= 0;
+			variables->perpendicular_velocity= 0;
+		}
 	}
 
 	const bool dry_grab_requested =
