@@ -31,33 +31,95 @@ Movement features can be enabled or disabled individually, allowing Sprintathon 
 
 Sprintathon adds a weapons reloading keybind, "R" by default. Reloading do not discard unfinished magazines. The game remembers the rounds left in every magazine, uses full magazines first, and later returns the fullest partial magazine available.
 
-## Building on Ubuntu
+## Building
 
-Install the build dependencies:
+Clone the Sprintathon branch. The scenario submodules provide the original
+Marathon game data used by packaged builds:
+
+```bash
+git clone --branch sprintathon --single-branch --recurse-submodules \
+  https://github.com/visageeee/alephone.git sprintathon
+cd sprintathon
+```
+
+The scenario submodules are optional when building only the engine and using
+game data already installed elsewhere.
+
+### Ubuntu and Debian-based distributions
 
 ```bash
 sudo apt update
 sudo apt install \
-  build-essential autoconf automake libtool pkg-config \
+  build-essential autoconf autoconf-archive automake libtool pkg-config \
   libboost-all-dev libasio-dev \
-  libsdl2-dev libsdl2-image-dev libsdl2-net-dev libsdl2-ttf-dev \
-  libpng-dev libjpeg-dev libcurl4-openssl-dev \
-  libzzip-dev libspeexdsp-dev libsndfile1-dev
-````
+  libsdl2-dev libsdl2-image-dev libsdl2-ttf-dev \
+  libzzip-dev libpng-dev libcurl4-gnutls-dev libminiupnpc-dev \
+  libopenal-dev libsndfile1-dev libglu1-mesa-dev \
+  libvpx-dev libmatroska-dev libebml-dev \
+  libvorbis-dev libvorbisenc2 libyuv-dev
+```
 
-Configure and compile:
+### Fedora
+
+Enable RPM Fusion first if optional multimedia packages are unavailable, then:
 
 ```bash
-./autogen.sh
+sudo dnf install \
+  autoconf autoconf-archive automake libtool make gcc-c++ pkgconf-pkg-config \
+  boost-devel asio-devel SDL2-devel SDL2_image-devel SDL2_ttf-devel \
+  libpng-devel libcurl-devel zziplib-devel miniupnpc-devel \
+  openal-soft-devel libsndfile-devel mesa-libGLU-devel
+```
+
+Package names vary on Arch, openSUSE, FreeBSD and other systems. Install a C++17
+compiler, Autoconf, Automake and development packages for Boost, ASIO, SDL2,
+SDL2_image, SDL2_ttf, zlib, libpng, libsndfile and OpenAL. Curl, miniupnpc,
+zziplib, VPX, Matroska, EBML, Vorbis and libyuv enable optional features.
+
+### Compile on Linux or FreeBSD
+
+A Git clone does not contain the generated `configure` script. Generate it,
+configure the project and compile:
+
+```bash
+autoreconf -i
 ./configure
 make -j"$(nproc)"
 ```
 
-The resulting executable is normally:
+The resulting executable is `Source_Files/alephone`. Installation is optional:
 
-```text
-Source_Files/alephone
+```bash
+sudo make install
 ```
+
+### Windows
+
+Install Visual Studio 2022 with the **Desktop development with C++** workload,
+Git and [vcpkg](https://github.com/microsoft/vcpkg). Bootstrap vcpkg and enable
+Visual Studio integration:
+
+```powershell
+git clone https://github.com/microsoft/vcpkg C:\src\vcpkg
+C:\src\vcpkg\bootstrap-vcpkg.bat
+C:\src\vcpkg\vcpkg integrate install
+```
+
+Clone Sprintathon with submodules, open `VisualStudio/AlephOne.sln`, select an
+x64 configuration and build the `AlephOne` project. Keeping both vcpkg and the
+source tree in short paths without spaces avoids several dependency build
+problems.
+
+### macOS
+
+Install Xcode command-line tools and vcpkg, then clone Sprintathon with
+submodules. Aleph One provides `vcpkg/install-arm-osx.sh` and
+`vcpkg/install-x64-osx.sh` for Apple Silicon and Intel respectively. After
+installing the appropriate dependencies, open `Xcode/AlephOne.xcodeproj` in
+Xcode and build the desired target.
+
+The Windows and macOS paths have not yet received the same fresh-build testing
+as the Linux build. Please report Sprintathon-specific failures on GitHub.
 
 ## Running
 
