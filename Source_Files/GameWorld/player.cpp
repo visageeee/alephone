@@ -722,10 +722,16 @@ void update_players(ActionQueues* inActionQueuesToUse, bool inPredictive)
 			!(action_flags & _microphone_button) &&
 			!TEST_FLAG(player->variables.flags, _FEET_BELOW_MEDIA_BIT);
 
-		const uint16 sprint_duration =
-			6 * TICKS_PER_SECOND;
-		const uint16 sprint_cooldown =
-			2 * TICKS_PER_SECOND;
+		// Sprintathon uses the suit oxygen reserve as stamina. A full tank
+		// provides about twelve seconds of continuous sprinting; breathable
+		// air restores it at half that rate below.
+		const int16 sprint_oxygen_cost =
+			(PLAYER_MAXIMUM_SUIT_OXYGEN /
+				(12 * TICKS_PER_SECOND) *
+				input_preferences->sprintathon_sprint_drain_percent + 99) /
+			100;
+		const int16 sprint_start_oxygen =
+			PLAYER_MAXIMUM_SUIT_OXYGEN / 5;
 		const bool crouch_key_down =
 			(action_flags & _microphone_button) != 0;
 
@@ -743,57 +749,58 @@ void update_players(ActionQueues* inActionQueuesToUse, bool inPredictive)
 				(TICKS_PER_SECOND * 3) / 4;
 			player->slide_punch_pending = true;
 			player->sprinting = false;
-			player->sprint_ticks_remaining = 0;
-			player->sprint_cooldown_ticks = sprint_cooldown;
+			player->sprint_blocked_until_release = true;
 		}
 		player->crouch_key_was_down = crouch_key_down;
 
-		// Releasing the key permits a new sprint after cooldown.
+		// A release arms sprint again. This prevents an empty oxygen tank
+		// from producing alternating one-tick sprints while it recharges.
 		if (!sprint_key_down)
+		{
 			player->sprint_key_was_down = false;
+			player->sprint_blocked_until_release = false;
+		}
 
-		if (player->sprint_cooldown_ticks > 0)
-			player->sprint_cooldown_ticks--;
-
-		// Begin only on a fresh press when the cooldown has finished.
+		// Begin only on a fresh press with oxygen available.
 		if (sprint_requested &&
 		    !player->sprint_key_was_down &&
-		    player->sprint_cooldown_ticks == 0)
+		    !player->sprint_blocked_until_release &&
+		    player->suit_oxygen >= sprint_start_oxygen)
 		{
-			player->sprint_ticks_remaining = sprint_duration;
 			player->sprint_key_was_down = true;
 		}
 
 		player->sprinting =
 			player->slide_ticks_remaining == 0 &&
 			sprint_requested &&
-			player->sprint_ticks_remaining > 0 &&
-			player->sprint_cooldown_ticks == 0;
+			player->sprint_key_was_down &&
+			!player->sprint_blocked_until_release &&
+			player->suit_oxygen > 0;
+
+		const uint16 sprint_ramp_duration =
+			(TICKS_PER_SECOND * 4) / 5;
+		if (player->sprinting)
+		{
+			if (player->sprint_ramp_ticks < sprint_ramp_duration)
+				player->sprint_ramp_ticks++;
+		}
+		else
+		{
+			player->sprint_ramp_ticks = 0;
+		}
 
 		if (player->sprinting)
 		{
-			player->sprint_ticks_remaining--;
-
 			// Sprint implies running and blocks both weapon triggers.
 			action_flags |= _run_dont_walk;
 			action_flags &=
 				~(_left_trigger_state | _right_trigger_state);
-
-			if (player->sprint_ticks_remaining == 0)
-				player->sprint_cooldown_ticks = sprint_cooldown;
 		}
 		else if (player->slide_ticks_remaining > 0)
 		{
 			// Sliding keeps the weapon triggers locked and retains run animation.
 			action_flags |= _run_dont_walk;
 			action_flags &= ~(_left_trigger_state | _right_trigger_state);
-		}
-		else if (!sprint_key_down &&
-		         player->sprint_ticks_remaining > 0)
-		{
-			// Releasing early ends the burst and starts cooldown.
-			player->sprint_ticks_remaining = 0;
-			player->sprint_cooldown_ticks = sprint_cooldown;
 		}
 
 		// if we’ve got the ball we can’t run (that sucks)
@@ -816,6 +823,19 @@ void update_players(ActionQueues* inActionQueuesToUse, bool inPredictive)
 
 		if(!inPredictive)
 		{
+			if (player->sprinting)
+			{
+				player->suit_oxygen = FLOOR(
+					player->suit_oxygen - sprint_oxygen_cost, 0);
+				if (player->suit_oxygen == 0)
+				{
+					player->sprinting = false;
+					player->sprint_blocked_until_release = true;
+				}
+				if (player_index == current_player_index)
+					mark_oxygen_display_as_dirty();
+			}
+
 			if (!reload_key_down)
 				player->reload_key_was_down= false;
 			else if (!player->reload_key_was_down)
@@ -863,7 +883,21 @@ void update_players(ActionQueues* inActionQueuesToUse, bool inPredictive)
 			if ((static_world->environment_flags&_environment_vacuum) || (player->variables.flags&_HEAD_BELOW_MEDIA_BIT))
 				player_settings.OxygenChange = - player_settings.OxygenDepletion;
 			else
+			{
 				player_settings.OxygenChange = player_settings.OxygenReplenishment;
+				if (input_preferences->sprintathon_enabled &&
+					input_preferences->sprintathon_sprint)
+				{
+					const short sprint_oxygen_recovery =
+						(PLAYER_MAXIMUM_SUIT_OXYGEN /
+							(24 * TICKS_PER_SECOND) *
+							input_preferences->sprintathon_oxygen_recovery_percent + 99) /
+						100;
+					player_settings.OxygenChange = player->sprinting ? 0 :
+						MAX(player_settings.OxygenChange,
+							sprint_oxygen_recovery);
+				}
+			}
 
 			if (player_settings.OxygenChange < 0)
 				handle_player_in_vacuum(player_index, action_flags);
@@ -1427,10 +1461,15 @@ static void ReplenishPlayerOxygen(short player_index, uint32 action_flags)
 	assert(player_settings.OxygenChange >= 0);
 	if (player->suit_oxygen < PLAYER_MAXIMUM_SUIT_OXYGEN)
 	{
+		const int16 old_oxygen = player->suit_oxygen;
 		if (player->suit_oxygen < PLAYER_MAXIMUM_SUIT_OXYGEN - player_settings.OxygenChange)
 			player->suit_oxygen += player_settings.OxygenChange;
 		else
 			player->suit_oxygen = PLAYER_MAXIMUM_SUIT_OXYGEN;
+
+		if (player->suit_oxygen != old_oxygen &&
+			player_index == current_player_index)
+			mark_oxygen_display_as_dirty();
 	}
 }
 

@@ -2527,6 +2527,21 @@ static void controller_details_dialog(void *arg)
 }
 
 
+class w_sprintathon_rate_slider : public w_slider
+{
+public:
+	explicit w_sprintathon_rate_slider(int percent) :
+		w_slider(391, percent - 10)
+	{
+		init_formatted_value();
+	}
+
+	std::string formatted_value(void) override
+	{
+		return std::to_string(get_selection() + 10) + "%";
+	}
+};
+
 static void sprintathon_dialog(void *arg)
 {
 	dialog d;
@@ -2548,6 +2563,14 @@ static void sprintathon_dialog(void *arg)
 	ADD_SPRINTATHON_TOGGLE(jump_w, sprintathon_jump, "Jumping");
 	ADD_SPRINTATHON_TOGGLE(crouch_w, sprintathon_crouch, "Crouching");
 	ADD_SPRINTATHON_TOGGLE(sprint_w, sprintathon_sprint, "Sprinting");
+	w_slider *sprint_drain_w = new w_sprintathon_rate_slider(
+		input_preferences->sprintathon_sprint_drain_percent);
+	options->dual_add(sprint_drain_w->label("Sprint Oxygen Drain"), d);
+	options->dual_add(sprint_drain_w, d);
+	w_slider *oxygen_recovery_w = new w_sprintathon_rate_slider(
+		input_preferences->sprintathon_oxygen_recovery_percent);
+	options->dual_add(oxygen_recovery_w->label("Oxygen Recovery"), d);
+	options->dual_add(oxygen_recovery_w, d);
 	ADD_SPRINTATHON_TOGGLE(slide_w, sprintathon_slide, "Sprint Sliding");
 	ADD_SPRINTATHON_TOGGLE(long_jump_w, sprintathon_long_jump, "Crouch Long-Jump");
 	ADD_SPRINTATHON_TOGGLE(wall_run_w, sprintathon_wall_run, "Wall-Running");
@@ -2586,6 +2609,10 @@ static void sprintathon_dialog(void *arg)
 		STORE_SPRINTATHON_TOGGLE(sprintathon_jump, jump_w);
 		STORE_SPRINTATHON_TOGGLE(sprintathon_crouch, crouch_w);
 		STORE_SPRINTATHON_TOGGLE(sprintathon_sprint, sprint_w);
+		input_preferences->sprintathon_sprint_drain_percent =
+			sprint_drain_w->get_selection() + 10;
+		input_preferences->sprintathon_oxygen_recovery_percent =
+			oxygen_recovery_w->get_selection() + 10;
 		STORE_SPRINTATHON_TOGGLE(sprintathon_slide, slide_w);
 		STORE_SPRINTATHON_TOGGLE(sprintathon_long_jump, long_jump_w);
 		STORE_SPRINTATHON_TOGGLE(sprintathon_wall_run, wall_run_w);
@@ -3980,6 +4007,10 @@ InfoTree input_preferences_tree()
 	root.put_attr("sprintathon_jump", input_preferences->sprintathon_jump);
 	root.put_attr("sprintathon_crouch", input_preferences->sprintathon_crouch);
 	root.put_attr("sprintathon_sprint", input_preferences->sprintathon_sprint);
+	root.put_attr("sprintathon_sprint_drain_percent",
+		input_preferences->sprintathon_sprint_drain_percent);
+	root.put_attr("sprintathon_oxygen_recovery_percent",
+		input_preferences->sprintathon_oxygen_recovery_percent);
 	root.put_attr("sprintathon_slide", input_preferences->sprintathon_slide);
 	root.put_attr("sprintathon_long_jump", input_preferences->sprintathon_long_jump);
 	root.put_attr("sprintathon_wall_run", input_preferences->sprintathon_wall_run);
@@ -4336,6 +4367,8 @@ static void default_input_preferences(input_preferences_data *preferences)
 	preferences->sprintathon_jump = true;
 	preferences->sprintathon_crouch = true;
 	preferences->sprintathon_sprint = true;
+	preferences->sprintathon_sprint_drain_percent = 125;
+	preferences->sprintathon_oxygen_recovery_percent = 200;
 	preferences->sprintathon_slide = true;
 	preferences->sprintathon_long_jump = true;
 	preferences->sprintathon_wall_run = true;
@@ -4909,6 +4942,10 @@ void parse_input_preferences(InfoTree root, std::string version)
 	root.read_attr("sprintathon_jump", input_preferences->sprintathon_jump);
 	root.read_attr("sprintathon_crouch", input_preferences->sprintathon_crouch);
 	root.read_attr("sprintathon_sprint", input_preferences->sprintathon_sprint);
+	root.read_attr_bounded<int16>("sprintathon_sprint_drain_percent",
+		input_preferences->sprintathon_sprint_drain_percent, 10, 400);
+	root.read_attr_bounded<int16>("sprintathon_oxygen_recovery_percent",
+		input_preferences->sprintathon_oxygen_recovery_percent, 10, 400);
 	root.read_attr("sprintathon_slide", input_preferences->sprintathon_slide);
 	root.read_attr("sprintathon_long_jump", input_preferences->sprintathon_long_jump);
 	root.read_attr("sprintathon_wall_run", input_preferences->sprintathon_wall_run);

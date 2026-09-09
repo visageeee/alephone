@@ -1377,8 +1377,18 @@ static void physics_update(
 
 	if (sprintathon && player->sprinting)
 	{
-		movement_forward = (movement_forward * 3) / 2;
-		movement_sideways = (movement_sideways * 3) / 2;
+		// Build the 50% sprint bonus over 0.8 seconds. Repeatedly tapping
+		// Sprint therefore spends oxygen without ever reaching full speed.
+		const int sprint_ramp_duration =
+			(TICKS_PER_SECOND * 4) / 5;
+		const int sprint_ramp = std::min<int>(
+			player->sprint_ramp_ticks, sprint_ramp_duration);
+		movement_forward +=
+			(movement_forward * sprint_ramp) /
+			(2 * sprint_ramp_duration);
+		movement_sideways +=
+			(movement_sideways * sprint_ramp) /
+			(2 * sprint_ramp_duration);
 	}
 
 	new_position.x+=

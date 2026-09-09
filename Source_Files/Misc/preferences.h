@@ -231,6 +231,8 @@ struct input_preferences_data
 	bool sprintathon_jump;
 	bool sprintathon_crouch;
 	bool sprintathon_sprint;
+	int16 sprintathon_sprint_drain_percent;
+	int16 sprintathon_oxygen_recovery_percent;
 	bool sprintathon_slide;
 	bool sprintathon_long_jump;
 	bool sprintathon_wall_run;

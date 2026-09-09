@@ -424,9 +424,11 @@ struct player_data
 
 	bool run_key;				// not serialized, used by HUD
 	bool sprinting;				// not serialized, lowers first-person weapon
-	uint16 sprint_ticks_remaining;		// available sprint time
-	uint16 sprint_cooldown_ticks;		// delay before sprint can restart
+	uint16 sprint_ticks_remaining;		// legacy, retained for layout compatibility
+	uint16 sprint_cooldown_ticks;		// legacy, retained for layout compatibility
 	bool sprint_key_was_down;			// requires release before restarting
+	bool sprint_blocked_until_release;		// prevents held-key sprint restarts
+	uint16 sprint_ramp_ticks;			// time spent accelerating this sprint
 	bool wall_jump_key_was_down;			// prevents repeated wall jumps
 	bool crouch_key_was_down;			// edge detection for sprint slide
 	bool reload_key_was_down;			// edge detection for manual reload
