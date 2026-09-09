@@ -1795,7 +1795,7 @@ static const char *action_name[NUM_KEYS] = {
 	"Move Forward", "Move Backward", "Turn Left", "Turn Right", "Sidestep Left", "Sidestep Right",
 	"Glance Left", "Glance Right", "Look Up", "Look Down", "Jump / Swim",
 	"Previous Weapon", "Next Weapon", "Trigger", "2nd Trigger",
-	"Turn -> Sidestep", "Run/Swim", "Sprint",
+	"Reload", "Run/Swim", "Sprint",
 	"Action", "Auto Map", "Crouch"
 };
 
@@ -1837,8 +1837,7 @@ static key_binding_map default_key_bindings = {
 		static_cast<SDL_Scancode>(AO_SCANCODE_MOUSESCROLL_UP),
 		static_cast<SDL_Scancode>(AO_SCANCODE_BASE_JOYSTICK_BUTTON + SDL_CONTROLLER_BUTTON_LEFTSHOULDER)
 	} },
-	{ 12, { SDL_SCANCODE_R,
-		static_cast<SDL_Scancode>(AO_SCANCODE_MOUSESCROLL_DOWN),
+	{ 12, { static_cast<SDL_Scancode>(AO_SCANCODE_MOUSESCROLL_DOWN),
 		static_cast<SDL_Scancode>(AO_SCANCODE_BASE_JOYSTICK_BUTTON + SDL_CONTROLLER_BUTTON_RIGHTSHOULDER)
 	} },
 	{ 13, { static_cast<SDL_Scancode>(AO_SCANCODE_BASE_MOUSE_BUTTON + SDL_BUTTON_LEFT - 1),
@@ -1847,7 +1846,7 @@ static key_binding_map default_key_bindings = {
 	{ 14, { static_cast<SDL_Scancode>(AO_SCANCODE_BASE_MOUSE_BUTTON + SDL_BUTTON_RIGHT - 1),
 		static_cast<SDL_Scancode>(AO_SCANCODE_BASE_JOYSTICK_AXIS_POSITIVE + SDL_CONTROLLER_AXIS_TRIGGERLEFT)
 	} },
-	{ 15, { SDL_SCANCODE_LALT
+	{ 15, { SDL_SCANCODE_R
 	} },
 	{ 16, { SDL_SCANCODE_LCTRL,
 		static_cast<SDL_Scancode>(AO_SCANCODE_BASE_JOYSTICK_BUTTON + SDL_CONTROLLER_BUTTON_LEFTSTICK)

@@ -96,8 +96,8 @@ static struct key_definition standard_key_definitions[]=
 	{SDL_SCANCODE_SPACE, _left_trigger_state},
 	{SDL_SCANCODE_LALT, _right_trigger_state},
 	
-	/* shift, control and command modifiers */
-	{SDL_SCANCODE_LSHIFT, _sidestep_dont_turn},
+	/* Reload is injected after special-key latching in parse_keymap(). */
+	{SDL_SCANCODE_R, 0},
 	{SDL_SCANCODE_LCTRL, _run_dont_walk},
 	{SDL_SCANCODE_LGUI, _look_dont_turn},
 	
@@ -112,4 +112,3 @@ static struct key_definition standard_key_definitions[]=
 };
 
 #endif
-
