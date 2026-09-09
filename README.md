@@ -1,133 +1,114 @@
-# Aleph One
+# Sprintathon
 
-Aleph One is the open source continuation of Bungie™’s _Marathon® 2_ and _Marathon Infinity_ game engines. Aleph One plays _Marathon_, _Marathon 2_, _Marathon Infinity_, and third-party content on a variety of platforms.
+It's a Marathon, but also a sprint! Sprintathon is a gameplay-focused fork of [Aleph One](https://github.com/Aleph-One-Marathon/alephone) that modernizes the movement, aiming, and first-person feel of the Marathon engine while retaining compatibility with Marathon scenarios.
 
-Aleph One is available under the terms of the [GNU General Public License (GPL 3)](http://www.gnu.org/licenses/gpl-3.0.html)
+## Features
 
-[![Discord](https://img.shields.io/badge/Discord-%235865F2.svg?&logo=discord&logoColor=white)](https://discord.gg/NvF3pdV)     [![Steam](https://img.shields.io/badge/steam-%23000000.svg?style=for-the-badge&logo=steam&logoColor=white)](https://store.steampowered.com/developer/alephone)
+All gameplay additions can be configured from the **Sprintathon** preferences panel.
 
-# Download
+- Adjustable vertical mouselook range. The ability to look further up and down than in the vanilla Marathon experience can create graphical glitches but also makes for a much more modern mouselook "feel" and allow for some more advanced movement combined with the other Sprintathon enhancements.
+- Improved first-person camera perspective
+- Smoother mouse aiming
+- Jumping with coyote time
+- Crouching and crouch long-jumps
+- Timed sprinting with cooldown
+- Lowered weapon and enhanced weapon sway while sprinting
+- Wall-running and wall-jumping
+- Modernized swimming and surface movement
+- Water and dry ledge-grabbing
+- Optional global fog
 
-To download ready-to-run versions of all three _Marathon_ games for macOS,
-Windows, and Linux Flatpak, visit
-[alephone.lhowon.org](https://alephone.lhowon.org)
+Movement features can be enabled or disabled individually, allowing Sprintathon to range from mostly traditional Marathon movement to the complete modernized movement set.
 
-# Build from source
+## Building on Ubuntu
 
-## CI status
+Install the build dependencies:
 
-[![Build Status](https://github.com/Aleph-One-Marathon/alephone/actions/workflows/ci-build.yml/badge.svg)](https://github.com/Aleph-One-Marathon/alephone/actions/workflows/ci-build.yml?query=branch%3Amaster+)
+```bash
+sudo apt update
+sudo apt install \
+  build-essential autoconf automake libtool pkg-config \
+  libboost-all-dev libasio-dev \
+  libsdl2-dev libsdl2-image-dev libsdl2-net-dev libsdl2-ttf-dev \
+  libpng-dev libjpeg-dev libcurl4-openssl-dev \
+  libzzip-dev libspeexdsp-dev libsndfile1-dev
+````
 
-## Scenario data
+Configure and compile:
 
-If you only want an Aleph One executable, you can simply download and untar a release source tarball. However, to build all-in-one Mac apps, flatpaks, or Windows zip files, you will need to populate the data/Scenarios directory. The easiest way to do that is to clone the repository and submodules:
+```bash
+./autogen.sh
+./configure
+make -j"$(nproc)"
+```
 
-    git clone --recurse-submodules https://github.com/Aleph-One-Marathon/alephone.git
+The resulting executable is normally:
 
-Alternatively, you can download the [data files](https://alephone.lhowon.org/scenarios.html) and unzip them in the data/Scenarios/ directory.
+```text
+Source_Files/alephone
+```
 
-## macOS
+## Running
 
-These instructions assume familiarity with the Xcode tools and the macOS command line.
+Aleph One requires Marathon scenario data, including files such as `Map`, `Shapes`, `Sounds`, and `Images`.
 
-macOS dependencies are managed by [vcpkg](https://github.com/microsoft/vcpkg).
+Pass the scenario directory to the locally compiled executable:
 
-Some users have had issues building Aleph One when there are spaces in the path to vcpkg and alephone, so it is recommended to put them in paths without spaces.
+```bash
+./Source_Files/alephone ~/Games/Marathon
+```
 
-Download, bootstrap, and install vcpkg:
+Be sure to run `./Source_Files/alephone`, not an older system installation at `/usr/local/bin/alephone`.
 
-    git clone https://github.com/microsoft/vcpkg
-    ./vcpkg/bootstrap-vcpkg.sh
-    ./vcpkg/vcpkg integrate install
+## Controls
 
-`cd` into Aleph One's vcpkg subdirectory and use the `install-arm-osx.sh` and `install-x64-osx.sh` scripts to install macOS dependencies for arm64 and x64.
+Configure bindings from the in-game keyboard preferences. Sprintathon adds or repurposes bindings for:
 
-You should now be able to open `Xcode/AlephOne.xcodeproj` in Xcode and build Aleph One.
+* Jump / Swim
+* Crouch
+* Sprint
 
-## Windows
+The exact keys are user-configurable.
 
-Windows builds are built using [Visual Studio](https://visualstudio.microsoft.com/vs/)
+## Configuration
 
-Windows dependencies are managed by [vcpkg](https://github.com/microsoft/vcpkg).
+Open Preferences and select the **Sprintathon** section. It contains:
 
-Note this important recommendation in the vcpkg getting-started guide: _If installing globally, we recommend a short install path like: C:\src\vcpkg or C:\dev\vcpkg, since otherwise you may run into path issues for some port build systems._ Spaces in the path and non-ASCII characters can also cause problems. These notes apply to the Aleph One source location as well.
+* A master movement toggle
+* Individual movement-feature toggles
+* Several extended-mouselook limits, including nearly full upward and downward aiming
 
-Download, bootstrap, and install vcpkg:
+Global fog is configured separately in the OpenGL graphics preferences.
 
-    git clone https://github.com/microsoft/vcpkg.git
-    .\vcpkg\bootstrap-vcpkg.bat
-    .\vcpkg integrate install
+## Project status
 
-You should now be able to build Aleph One using the `VisualStudio\AlephOne.sln` project file
+Sprintathon is experimental. Gameplay behavior, networking compatibility, saved preferences, and scenario-specific interactions may still require testing.
 
-## Linux/FreeBSD/other
+Bug reports should include:
 
-Linux/FreeBSD/other builds are built using autoconf. If you downloaded a source tarball, the configure system is already set up for you. If you cloned from git, you first need to set up the configure system. Install `autoconf` and `autoconf-archive` from your distro package manager, then:
+* The scenario and level
+* Relevant Sprintathon options
+* Steps to reproduce
+* Build output or terminal errors
+* Whether the issue occurs in upstream Aleph One
 
-    autoreconf -i
+## Upstream project
 
-### Dependencies
+Sprintathon is based on Aleph One, the open-source continuation of the Marathon engine.
 
-Aleph One requires a C++17 compiler and the following libraries:
+For upstream documentation, licensing, credits, and platform-specific build information, see [README_ALEPHONE.md](README_ALEPHONE.md) and the [Aleph One project](https://github.com/Aleph-One-Marathon/alephone).
 
-+ `ASIO`
-+ `Boost`
-+ `SDL2`
-+ `SDL2_image`
-+ `SDL2_ttf`
-+ `zlib`
-+ `libsndfile`
-+ `openal-soft`
+## License
 
-These libraries are recommended for full features and third-party scenario compatibility:
+Sprintathon retains Aleph One's existing licensing. See the repository's license and copyright files for details.
+EOF
 
-+ `curl` _for stats upload to lhowon.org_
-+ `miniupnpc` _for opening router ports_
-+ `zziplib` _for using zipped plugins_
-+ `vpx` _for film export_
-+ `matroska` _for film export_
-+ `ebml` _for film export_
-+ `vorbis` _for film export_
-+ `libyuv` _for film export and video playback_
+git add README.md README_ALEPHONE.md
+git commit -m "Add Sprintathon project README"
+git push
 
-#### Fedora
+```
 
-First, enable the [RPM Fusion Repository](http://rpmfusion.org/Configuration).
+This preserves all upstream documentation and makes the fork’s purpose immediately clear on its GitHub front page.
+```
 
-Then, install the following packages.
-
-    sudo dnf install boost-devel curl-devel gcc-c++ \
-      libpng-devel SDL2-devel SDL2_ttf-devel SDL2_image-devel asio-devel \
-      zziplib-devel miniupnpc-devel openal-soft-devel libsndfile-devel
-
-#### Ubuntu
-
-Run this command to install the necessary prerequisites for building Aleph One:
-
-    sudo apt install build-essential libboost-all-dev libsdl2-dev \
-      libsdl2-image-dev libasio-dev libsdl2-ttf-dev libzzip-dev \
-      libpng-dev libcurl4-gnutls-dev libminiupnpc-dev libopenal-dev \
-      libsndfile1-dev libglu1-dev libvpx-dev libmatroska-dev libebml-dev \
-      libvorbis-dev libvorbisenc2 libyuv-dev
-
-### Compile
-
-First, run the configure script:
-
-    ./configure
-
-After running the configure script, start the compile process by running make:
-
-    make
-
-Once the compile is finished, you can install the executable by running:
-
-    sudo make install
-
-By default, the Aleph One executable is installed into `/usr/local/bin/alephone`.
-
-### Run
-
-You can download game data from the [Aleph One Scenarios](https://alephone.lhowon.org/scenarios.html) page. After unzipping one of the games, pass the directory as an argument to Aleph One:
-
-    /usr/local/bin/alephone ~/Games/Marathon
