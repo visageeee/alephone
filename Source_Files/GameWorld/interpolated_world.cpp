@@ -96,6 +96,7 @@ static std::vector<int16_t> current_tick_polygon_ephemera;
 struct TickWorldView {
 	int16_t origin_polygon_index;
 	angle yaw, pitch;
+	int16 roll;
 	fixed_angle virtual_yaw, virtual_pitch;
 	world_point3d origin;
 	_fixed maximum_depth_intensity;
@@ -317,6 +318,7 @@ void enter_interpolated_world()
 	next->origin_polygon_index = view->origin_polygon_index;
 	next->yaw = view->yaw;
 	next->pitch = view->pitch;
+	next->roll = view->roll;
 	next->virtual_yaw = view->virtual_yaw;
 	next->virtual_pitch = view->virtual_pitch;
 	next->origin = view->origin;
@@ -709,6 +711,9 @@ void interpolate_world_view(float heartbeat_fraction)
 	view->pitch = lerp_angle(prev->pitch,
 							 next->pitch,
 							 heartbeat_fraction);
+	view->roll = lerp(prev->roll,
+					  next->roll,
+					  heartbeat_fraction);
 		
 	view->virtual_yaw = lerp_fixed_angle(prev->virtual_yaw,
 										 next->virtual_yaw,

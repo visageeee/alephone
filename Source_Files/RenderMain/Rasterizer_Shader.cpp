@@ -119,10 +119,8 @@ void Rasterizer_Shader_Class::SetView(view_data& view) {
 	glLoadMatrixd(kViewBaseMatrix);
 	if (!view.mimic_sw_perspective)
 		glRotated(pitch, 0.0, 1.0, 0.0);
-//	apperently 'roll' is not what i think it is
-//	rubicon sets it to some strange value
-//	double roll = view.roll * 360.0 / float(NUMBER_OF_ANGLES);
-//	glRotated(roll, 1.0, 0.0, 0.0);
+	double roll = view.roll * 360.0 / float(NUMBER_OF_ANGLES);
+	glRotated(roll, 1.0, 0.0, 0.0);
 	glRotated(-yaw, 0.0, 0.0, 1.0);
 	glTranslated(-view.origin.x, -view.origin.y, -view.origin.z);
 }

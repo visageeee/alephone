@@ -180,6 +180,7 @@ void initialize_player_physics_variables(
 	variables->ledge_height= INT16_MAX;
 	variables->actual_height= constants->height;
 	variables->jump_grace_ticks= 0;
+	player->wall_run_camera_roll= 0;
 	
 	variables->step_phase= 0;
 	variables->step_amplitude= 0;
@@ -605,6 +606,35 @@ static void physics_update(
 	const bool modern_swimming = sprintathon && input_preferences->sprintathon_swimming;
 	const bool modern_ledge_grab = modern_jump && input_preferences->sprintathon_ledge_grab;
 	const _fixed maximum_elevation = sprintathon_mouselook_limit(constants);
+
+	// Lean the viewpoint away from the wall during a wall run. The collision
+	// correction vector points away from the wall; projecting it onto the
+	// player's right vector tells us which way the camera should roll.
+	int16 target_wall_run_roll= 0;
+	if (modern_wall_run && player->sprinting &&
+		(variables->flags&_HORIZONTAL_COLLISION_BIT) &&
+		(variables->flags&_ABOVE_GROUND_BIT) &&
+		!(variables->flags&_FEET_BELOW_MEDIA_BIT) &&
+		(variables->wall_push_i!=0 || variables->wall_push_j!=0))
+	{
+		const angle facing= FIXED_INTEGERAL_PART(variables->direction);
+		const int64_t side=
+			-static_cast<int64_t>(variables->wall_push_i)*sine_table[facing] +
+			 static_cast<int64_t>(variables->wall_push_j)*cosine_table[facing];
+		const int16 wall_run_roll= (FULL_CIRCLE*7)/360;
+		if (side>0) target_wall_run_roll= wall_run_roll;
+		else if (side<0) target_wall_run_roll= -wall_run_roll;
+	}
+
+	// Ease in quickly and return a little more gently. Keep a one-unit minimum
+	// step so the fixed-angle value always reaches its target.
+	const int16 roll_difference= target_wall_run_roll-player->wall_run_camera_roll;
+	if (roll_difference!=0)
+	{
+		int16 roll_step= roll_difference/(target_wall_run_roll ? 3 : 5);
+		if (roll_step==0) roll_step= roll_difference>0 ? 1 : -1;
+		player->wall_run_camera_roll+= roll_step;
+	}
 	if (!modern_swimming) variables->flags&= (uint16)~_WATER_MANTLING_BIT;
 	if (!modern_ledge_grab) variables->flags&= (uint16)~_DRY_MANTLING_BIT;
 	if (!sprintathon || !input_preferences->sprintathon_sprint) player->sprinting= false;
