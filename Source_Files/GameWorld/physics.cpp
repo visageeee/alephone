@@ -617,6 +617,17 @@ static void physics_update(
 	// correction vector points away from the wall; projecting it onto the
 	// player's right vector tells us which way the camera should roll.
 	int16 target_wall_run_roll= 0;
+	if (sprintathon && player->sprinting)
+	{
+		// A restrained side-to-side running cadence. Use world ticks so the
+		// motion has the same speed at every rendered frame rate.
+		const angle sprint_sway_phase= NORMALIZE_ANGLE(static_cast<angle>(
+			(static_cast<int64_t>(dynamic_world->tick_count)*FULL_CIRCLE*3)/
+			(2*TICKS_PER_SECOND)));
+		const int16 sprint_sway_amplitude= (FULL_CIRCLE*3)/360;
+		target_wall_run_roll= static_cast<int16>(
+			(sprint_sway_amplitude*sine_table[sprint_sway_phase])>>TRIG_SHIFT);
+	}
 	if (modern_wall_run && player->sprinting &&
 		(variables->flags&_HORIZONTAL_COLLISION_BIT) &&
 		(variables->flags&_ABOVE_GROUND_BIT) &&
@@ -628,8 +639,8 @@ static void physics_update(
 			-static_cast<int64_t>(variables->wall_push_i)*sine_table[facing] +
 			 static_cast<int64_t>(variables->wall_push_j)*cosine_table[facing];
 		const int16 wall_run_roll= (FULL_CIRCLE*7)/360;
-		if (side>0) target_wall_run_roll= wall_run_roll;
-		else if (side<0) target_wall_run_roll= -wall_run_roll;
+		if (side>0) target_wall_run_roll+= wall_run_roll;
+		else if (side<0) target_wall_run_roll-= wall_run_roll;
 	}
 
 	// Ease in quickly and return a little more gently. Keep a one-unit minimum
