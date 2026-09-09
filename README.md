@@ -12,7 +12,7 @@ Sacrilegious features include JUMPING, CROUCHING, SPRINTING, SWIMMING ABOVE THE 
 
 All gameplay additions can be configured from the **Sprintathon** preferences panel.
 
-- Adjustable vertical mouselook range. The ability to look further up and down than in the vanilla Marathon experience can create graphical glitches but also makes for a much more modern mouselook "feel" and allow for some more advanced movement combined with the other Sprintathon enhancements.
+- Adjustable vertical mouselook range. Looking farther up and down than in vanilla Marathon can expose graphical glitches, but gives mouselook a much more modern feel and enables advanced movement with the other Sprintathon enhancements.
 - Improved first-person camera perspective
 - Smoother mouse aiming
 - Jumping with coyote time
@@ -29,7 +29,7 @@ Movement features can be enabled or disabled individually, allowing Sprintathon 
 
 ## Realistic Reloading
 
-Sprintathon adds a weapons reloading keybind, "R" by default. Reloading do not discard unfinished magazines. The game remembers the rounds left in every magazine, uses full magazines first, and later returns the fullest partial magazine available.
+Sprintathon adds a weapon-reload binding, set to **R** by default. Reloading does not discard unfinished magazines. The game remembers the rounds left in every magazine, uses full magazines first, and later returns the fullest partial magazine available. Reload is ignored when the magazine already loaded is the fullest one available.
 
 ## Building
 
@@ -125,7 +125,7 @@ as the Linux build. Please report Sprintathon-specific failures on GitHub.
 
 Aleph One requires Marathon scenario data, including files such as `Map`, `Shapes`, `Sounds`, and `Images`.
 
-If you store them at ```~/Games/Marathon``` Pass the scenario directory to the locally compiled executable:
+If you store them in `~/Games/Marathon`, pass that scenario directory to the locally compiled executable:
 
 ```bash
 ./Source_Files/alephone ~/Games/Marathon
@@ -137,9 +137,11 @@ Be sure to run `./Source_Files/alephone`, older system installations could resid
 
 Configure bindings from the in-game keyboard preferences. Sprintathon adds or repurposes bindings for:
 
-* Jump / Swim
-* Crouch
-* Sprint
+- **Space** — Jump / Swim
+- **C** — Crouch
+- **Left Shift** — Sprint
+- **R** — Reload
+- **Q / E** — Previous / Next Weapon
 
 The exact keys are user-configurable.
 
@@ -162,9 +164,8 @@ Sprintathon is experimental. Gameplay behavior, networking compatibility, saved 
 
 Sprintathon is based on Aleph One, the open-source continuation of the Marathon engine.
 
-For upstream documentation, licensing, credits, and platform-specific build information, see [README_ALEPHONE.md](README_ALEPHONE.md) and the [Aleph One project](https://github.com/Aleph-One-Marathon/alephone).
+For upstream documentation, licensing, credits, and additional platform-specific build information, see the [Aleph One project](https://github.com/Aleph-One-Marathon/alephone).
 
 ## License
 
 Sprintathon retains Aleph One's existing licensing. See the repository's license and copyright files for details.
-
