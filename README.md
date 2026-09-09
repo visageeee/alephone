@@ -6,6 +6,8 @@ Sprintathon is a gameplay-focused fork of [Aleph One](https://github.com/Aleph-O
 
 Sacrilegious features include JUMPING, CROUCHING, SPRINTING, SWIMMING ABOVE THE WATER SURFACE and more!
 
+![Sprintathon gameplay](docs/media/mthon.webp)
+
 ## Features
 
 All gameplay additions can be configured from the **Sprintathon** preferences panel.
