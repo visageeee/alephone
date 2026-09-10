@@ -3704,6 +3704,7 @@ void read_preferences ()
 		graphics_preferences->OGL_Configure.BillboardXY = true;
 		input_preferences->modifiers |= _inputmod_interchange_run_walk;
 		input_preferences->modifiers &= ~_inputmod_run_key_toggle;
+		input_preferences->modifiers |= _inputmod_dont_auto_recenter;
 
 		Plugin* enhanced_hud = nullptr;
 		for (auto& plugin : *Plugins::instance())
