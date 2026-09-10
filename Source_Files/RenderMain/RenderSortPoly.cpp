@@ -276,6 +276,16 @@ clipping_window_data *RenderSortPolyClass::build_clipping_windows(
 			}
 		}
 	}
+
+	/* Full-circle shader visibility deliberately discards the legacy portal
+	 * clips. Give every discovered polygon an explicit full-screen horizontal
+	 * range as well; leaving SHRT_MIN/SHRT_MAX sentinels here can produce an
+	 * inverted range for unusual or degenerate map polygons. */
+	if (RVPtr->conservative_full_circle)
+	{
+		x0 = 0;
+		x1 = view->screen_width;
+	}
 	
 	/* add left, top and bottom of screen */
 	endpoint_clip_data *EndpointClipPtr = &EndpointClips[indexLEFT_SIDE_OF_SCREEN];

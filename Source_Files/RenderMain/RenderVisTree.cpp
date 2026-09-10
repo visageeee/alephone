@@ -83,7 +83,8 @@ inline void INITIALIZE_NODE(node_data *node, short node_polygon_index, uint16 no
 
 // Inits everything
 RenderVisTreeClass::RenderVisTreeClass():
-	view(NULL), mark_as_explored(false), add_to_automap(true)
+	view(NULL), mark_as_explored(false), add_to_automap(true),
+	conservative_full_circle(false)
 {
 	PolygonQueue.reserve(POLYGON_QUEUE_SIZE);
 	EndpointClips.reserve(MAXIMUM_ENDPOINT_CLIPS);
@@ -132,6 +133,21 @@ void RenderVisTreeClass::build_render_tree()
 	
 	cast_render_ray(&view->left_edge, NONE, &Nodes.front(), _counterclockwise_bias);
 	cast_render_ray(&view->right_edge, NONE, &Nodes.front(), _clockwise_bias);
+
+	/* A true pitched frustum can see sideways or behind the horizontal yaw
+	 * through its upper and lower corners. Seed the portal walk around the
+	 * complete horizon; OpenGL performs the final 3D frustum clipping. */
+	if (conservative_full_circle)
+	{
+		for (int ray = 0; ray < 16; ++ray)
+		{
+			const angle direction = static_cast<angle>((ray * FULL_CIRCLE) / 16);
+			long_vector2d vector = {
+				cosine_table[direction], sine_table[direction]
+			};
+			cast_render_ray(&vector, NONE, &Nodes.front(), _no_bias);
+		}
+	}
 	
 	/* pull polygons off the queue, fire at all their new endpoints, building the tree as we go */
 	while (polygon_queue_size)
@@ -176,13 +192,32 @@ void RenderVisTreeClass::build_render_tree()
 				
 				/* do two cross products to determine whether this endpoint is in our view cone or not
 					(we don’t have to cast at points outside the cone) */
-				if ((view->right_edge.i*_vector.j - view->right_edge.j*_vector.i)<=0 && (view->left_edge.i*_vector.j - view->left_edge.j*_vector.i)>=0)
+				if (conservative_full_circle ||
+					((view->right_edge.i*_vector.j - view->right_edge.j*_vector.i)<=0 &&
+					 (view->left_edge.i*_vector.j - view->left_edge.j*_vector.i)>=0))
 				{
 					cast_render_ray(&_vector, ENDPOINT_IS_TRANSPARENT(endpoint) ? NONE : endpoint_index, &Nodes.front(), _no_bias);
 				}
 				
 				SET_RENDER_FLAG(endpoint_index, _endpoint_has_been_visited);
 			}
+		}
+	}
+
+	/*
+	 * Rays outside the legacy forward cone are useful for discovering polygons,
+	 * but their endpoint and floor/ceiling clip planes are expressed in the old
+	 * yaw-only projection. Applying those planes to a genuinely pitched camera
+	 * creates giant diagonal wedges. Keep the discovered render tree, but give
+	 * every node an unclipped screen window; the shader renderer's real frustum
+	 * and depth buffer provide the appropriate clipping and occlusion.
+	 */
+	if (conservative_full_circle)
+	{
+		for (node_data& node : Nodes)
+		{
+			node.clipping_endpoint_count = 0;
+			node.clipping_line_count = 0;
 		}
 	}
 }

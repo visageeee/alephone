@@ -228,6 +228,10 @@ public:
 	// If true (default), the render tree will fill out
 	// the automap.
 	bool add_to_automap;
+
+	// Cast portal rays around the entire horizon. The pitched shader camera
+	// needs this when screen corners point outside the legacy view cone.
+	bool conservative_full_circle;
 	
 	// Resizes all the objects defined inside;
 	// the resizing is lazy

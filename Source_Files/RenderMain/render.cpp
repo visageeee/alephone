@@ -447,6 +447,14 @@ void render_view(
 		// LP: now from the visibility-tree class
 		/* build the render tree, regardless of map mode, so the automap updates while active */
 		RenderVisTree.view = view;
+		RenderVisTree.conservative_full_circle = false;
+#ifdef HAVE_OPENGL
+		RenderVisTree.conservative_full_circle =
+			OGL_IsActive() &&
+			!view->mimic_sw_perspective &&
+			input_preferences->sprintathon_enabled &&
+			input_preferences->sprintathon_mouselook_mode > 0;
+#endif
 		RenderVisTree.build_render_tree();
 		
 		/* do something complicated and difficult to explain */
@@ -617,8 +625,45 @@ static void update_view_data(
 		update_render_effect(view);
 	}
 	
-	/* calculate world_to_screen_y*tan(pitch) */
-	view->dtanpitch= (view->world_to_screen_y*sine_table[view->pitch])/cosine_table[view->pitch];
+	/*
+	 * Calculate world_to_screen_y*tan(pitch). The original 16-bit result
+	 * overflowed near vertical pitch, corrupting the portal clip vectors and
+	 * producing long polygon smears in the screen corners. Keep the
+	 * intermediate wide as well, and use a finite off-screen value if a view
+	 * ever reaches exactly 90 degrees.
+	 */
+	/*
+	 * The shader renderer applies virtual_pitch as a real 3D rotation, but
+	 * the old portal visibility pass models pitch as a vertical screen shear.
+	 * Those projections diverge near 90 degrees and the legacy clipper can
+	 * feed long, invalid wedges to OpenGL. Cap only the visibility pitch;
+	 * Rasterizer_Shader still renders the camera at the full virtual pitch.
+	 */
+	angle visibility_pitch= view->pitch;
+	if (!view->mimic_sw_perspective)
+	{
+		const int32 maximum_visibility_pitch= (FULL_CIRCLE*5)/24; // 75 degrees
+		int32 signed_pitch= visibility_pitch;
+		if (signed_pitch>HALF_CIRCLE) signed_pitch-= FULL_CIRCLE;
+		signed_pitch= PIN(signed_pitch,
+			-maximum_visibility_pitch, maximum_visibility_pitch);
+		visibility_pitch= NORMALIZE_ANGLE(static_cast<angle>(signed_pitch));
+	}
+
+	const int32 pitch_cosine= cosine_table[visibility_pitch];
+	if (pitch_cosine)
+	{
+		int64_t pitch_offset=
+			(static_cast<int64_t>(view->world_to_screen_y)*
+				sine_table[visibility_pitch])/pitch_cosine;
+		if (pitch_offset > 1048576) pitch_offset= 1048576;
+		if (pitch_offset < -1048576) pitch_offset= -1048576;
+		view->dtanpitch= static_cast<int32>(pitch_offset);
+	}
+	else
+	{
+		view->dtanpitch= sine_table[visibility_pitch]>=0 ? 1048576 : -1048576;
+	}
 
 	/* calculate left cone vector */
 	theta= NORMALIZE_ANGLE(view->yaw-view->half_cone);
