@@ -3687,6 +3687,32 @@ void read_preferences ()
 		alert_user(expand_app_variables("There were preferences-file parsing errors (see $appLogFile$ for details)").c_str(), infoError);
 	}
 
+	// On a fresh Sprintathon profile, prefer the scenario's Enhanced HUD when
+	// it is installed. Existing user plugin choices remain untouched.
+	if (defaults)
+	{
+		Plugin* enhanced_hud = nullptr;
+		for (auto& plugin : *Plugins::instance())
+		{
+			if (plugin.name == "Enhanced HUD" && !plugin.hud_lua.empty() &&
+				plugin.compatible() && plugin.allowed())
+			{
+				enhanced_hud = &plugin;
+				break;
+			}
+		}
+
+		if (enhanced_hud)
+		{
+			for (auto& plugin : *Plugins::instance())
+			{
+				if (!plugin.hud_lua.empty())
+					plugin.enabled = &plugin == enhanced_hud;
+			}
+			Plugins::instance()->invalidate();
+		}
+	}
+
 	// Check on the read-in prefs
 	validate_graphics_preferences(graphics_preferences);
 	validate_network_preferences(network_preferences);
@@ -4237,7 +4263,8 @@ void write_preferences()
 static void default_graphics_preferences(graphics_preferences_data *preferences)
 {
   memset(&preferences->screen_mode, '\0', sizeof(screen_mode_data));
-	preferences->screen_mode.gamma_level= DEFAULT_GAMMA_LEVEL;
+	// "Normal" in the brightness selector.
+	preferences->screen_mode.gamma_level = 3;
 
 	preferences->screen_mode.width = 640;
 	preferences->screen_mode.height = 480;
@@ -4256,12 +4283,14 @@ static void default_graphics_preferences(graphics_preferences_data *preferences)
 	
 	preferences->screen_mode.draw_every_other_line= false;
 
-	preferences->screen_mode.fov = 0; // use default
+	// Enable the FOV override at 85 degrees.
+	preferences->screen_mode.fov = 85;
 	
 	OGL_SetDefaults(preferences->OGL_Configure);
 
 	// Sprintathon uses proper 3D perspective by default.
 	preferences->OGL_Configure.Flags &= ~OGL_Flag_MimicSW;
+	preferences->OGL_Configure.Flags |= OGL_Flag_LiqSeeThru;
 
 	// Make sprites tilt vertically with the camera.
 	preferences->OGL_Configure.BillboardXY = true;
@@ -4354,8 +4383,8 @@ static void default_input_preferences(input_preferences_data *preferences)
 	
 	preferences->modifiers = _inputmod_use_button_sounds;
 
-	preferences->sens_horizontal = FIXED_ONE / 4;
-	preferences->sens_vertical = FIXED_ONE / 4;
+	preferences->sens_horizontal = FIXED_ONE / 10;       // 0.100
+	preferences->sens_vertical = (FIXED_ONE * 45) / 1000; // 0.045
 	preferences->mouse_accel_type = _mouse_accel_none;
 	preferences->mouse_accel_scale = 1.f;
 	preferences->raw_mouse_input = true;

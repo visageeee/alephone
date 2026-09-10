@@ -1194,10 +1194,36 @@ static void physics_update(
 		const bool touching_ledge =
 			variables->flags & _HORIZONTAL_COLLISION_BIT;
 
-		if (modern_swimming && (feet_in_water || already_mantling))
+		/*
+		 * Ground contact takes priority over swimming. Previously the
+		 * feet-in-media flag always entered this branch, so standing on a
+		 * submerged floor made the normal jump path unreachable.
+		 */
+		if (modern_swimming && (feet_in_water || already_mantling) &&
+			!touching_ground)
 		{
 			if (feet_in_water)
 			{
+				constexpr uint8 submerged_jump_sustain_ticks = 6;
+				const bool preserve_ground_jump =
+					(variables->flags & _SUBMERGED_GROUND_JUMP_BIT) &&
+					variables->jump_grace_ticks <=
+						jump_grace_limit + submerged_jump_sustain_ticks;
+
+				if (preserve_ground_jump)
+				{
+					// Guarantee a clean takeoff through the floor/media transition.
+					variables->external_velocity.k =
+						std::max<_fixed>(
+							variables->external_velocity.k,
+							FIXED_ONE / 24);
+				}
+				else
+				{
+					variables->flags &=
+						(uint16)~_SUBMERGED_GROUND_JUMP_BIT;
+				}
+
 				const _fixed eye_height =
 					variables->actual_height - FIXED_ONE / 8;
 				const _fixed surface_clearance = FIXED_ONE / 16;
@@ -1219,20 +1245,26 @@ static void physics_update(
 				const _fixed surface_error =
 					target_feet_height - variables->position.z;
 
-				// Soft spring and damping toward the surface.
-				variables->external_velocity.k += surface_error / 10;
-				variables->external_velocity.k -=
-					variables->external_velocity.k / 6;
+				// Do not let the swimming spring swallow a submerged-floor jump.
+				if (!preserve_ground_jump)
+				{
+					variables->external_velocity.k += surface_error / 10;
+					variables->external_velocity.k -=
+						variables->external_velocity.k / 6;
 
-				variables->external_velocity.k = PIN(
-					variables->external_velocity.k,
-					-FIXED_ONE / 18,
-					FIXED_ONE / 18);
+					variables->external_velocity.k = PIN(
+						variables->external_velocity.k,
+						-FIXED_ONE / 18,
+						FIXED_ONE / 18);
+				}
 
 				const bool near_surface =
 					std::abs(surface_error) < FIXED_ONE / 3;
 
-				if (near_surface &&
+				const bool head_above_water =
+					!(variables->flags & _HEAD_BELOW_MEDIA_BIT);
+
+				if ((near_surface || head_above_water) &&
 					pushing_forward &&
 					touching_ledge &&
 					!(variables->flags & _WATER_MANTLING_BIT))
@@ -1276,7 +1308,7 @@ static void physics_update(
 
 			variables->flags |= _JUMP_HELD_BIT;
 		}
-		else if (modern_jump && !feet_in_water)
+		else if (modern_jump && (!feet_in_water || touching_ground))
 		{
 			const bool can_jump =
 				variables->jump_grace_ticks <= jump_grace_limit;
@@ -1285,6 +1317,8 @@ static void physics_update(
 				!(variables->flags & _JUMP_HELD_BIT))
 			{
 				variables->external_velocity.k = FIXED_ONE / 13;
+				if (feet_in_water)
+					variables->flags |= _SUBMERGED_GROUND_JUMP_BIT;
 
                                 // Half-Life-style long jump: crouch + forward + jump.
 				if (modern_long_jump && (action_flags & _microphone_button) &&
@@ -1319,7 +1353,8 @@ static void physics_update(
 	else
 	{
 		variables->flags &=
-			(uint16)~(_JUMP_HELD_BIT | _WATER_MANTLING_BIT);
+			(uint16)~(_JUMP_HELD_BIT | _WATER_MANTLING_BIT |
+				_SUBMERGED_GROUND_JUMP_BIT);
 	}
 	if ((!sprintathon || !modern_swimming) && (action_flags&_swim) &&
 		(variables->flags&_HEAD_BELOW_MEDIA_BIT) &&

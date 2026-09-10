@@ -1,6 +1,8 @@
 name: ebml
 buildsystem: cmake-ninja
 config-opts:
+  - -DCMAKE_POLICY_VERSION_MINIMUM=3.5
+  - -DCMAKE_INSTALL_LIBDIR=lib
   - -DCMAKE_BUILD_TYPE=Release
   - -DBUILD_SHARED_LIBS=ON
 sources:

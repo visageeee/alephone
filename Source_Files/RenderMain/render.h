@@ -97,7 +97,7 @@ struct view_data
 	
 	short half_screen_width, half_screen_height;
 	short world_to_screen_x, world_to_screen_y;
-	short dtanpitch; /* world_to_screen*tan(pitch) */
+	int32 dtanpitch; /* world_to_screen*tan(pitch); exceeds int16 near vertical */
 	angle half_cone; /* often ==field_of_view/2 (when screen_width==standard_screen_width) */
 	angle half_vertical_cone;
 

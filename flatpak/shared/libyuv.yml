@@ -1,6 +1,9 @@
 name: libyuv
 buildsystem: cmake-ninja
-config-opts: [-DCMAKE_BUILD_TYPE=Release]
+config-opts:
+  - -DCMAKE_POLICY_VERSION_MINIMUM=3.5
+  - -DCMAKE_INSTALL_LIBDIR=lib
+  - -DCMAKE_BUILD_TYPE=Release
 sources:
   - type: git
     url: https://chromium.googlesource.com/libyuv/libyuv
