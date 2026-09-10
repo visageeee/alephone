@@ -385,7 +385,12 @@ std::unique_ptr<TextureManager> RenderRasterize_Shader::setupSpriteTexture(const
 	s->setFloat(Shader::U_Pulsate, 0);
 	s->setFloat(Shader::U_Wobble, 0);
 	s->setFloat(Shader::U_Depth, offset);
-	s->setFloat(Shader::U_StrictDepthMode, OGL_ForceSpriteDepth() ? 1 : 0);
+	const bool sprintathon_strict_sprite_depth =
+		!view->mimic_sw_perspective &&
+		input_preferences->sprintathon_enabled &&
+		input_preferences->sprintathon_mouselook_mode > 0;
+	s->setFloat(Shader::U_StrictDepthMode,
+		(OGL_ForceSpriteDepth() || sprintathon_strict_sprite_depth) ? 1 : 0);
 	s->setFloat(Shader::U_Glow, 0);
 	glColor4f(color[0], color[1], color[2], 1);
 	return TMgr;
@@ -1143,7 +1148,11 @@ void RenderRasterize_Shader::_render_node_object_helper(render_object_data *obje
 
 			
 	float offset = 0;
-	if (OGL_ForceSpriteDepth()) {
+	const bool sprintathon_strict_sprite_depth =
+		!view->mimic_sw_perspective &&
+		input_preferences->sprintathon_enabled &&
+		input_preferences->sprintathon_mouselook_mode > 0;
+	if (OGL_ForceSpriteDepth() || sprintathon_strict_sprite_depth) {
 		// look for parasitic objects based on y position,
 		// and offset them to draw in proper depth order
 		if(pos.y == objectY) {
