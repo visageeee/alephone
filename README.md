@@ -18,7 +18,7 @@ All gameplay additions can be configured from the **Sprintathon** preferences pa
 - Smoother mouse aiming
 - Jumping with coyote time
 - Crouching and crouch long-jumps
-- Timed sprinting with cooldown
+- Sprinting that repurposes the oxygen system into a recharging stamina meter. (Who liked vacuum levels anyway?) 
 - "Realistic" Reloading.
 - Lowered weapon and enhanced weapon sway while sprinting
 - Wall-running and wall-jumping
