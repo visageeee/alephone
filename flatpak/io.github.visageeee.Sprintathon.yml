@@ -1,0 +1,43 @@
+app-id: io.github.visageeee.Sprintathon
+runtime: org.gnome.Platform
+runtime-version: '49'
+sdk: org.gnome.Sdk
+command: sprintathon
+
+finish-args:
+  - --device=dri
+  - --socket=x11
+  - --socket=pulseaudio
+  - --share=network
+  - --filesystem=/tmp
+
+modules:
+  - shared/boost.yml
+  - shared/glu.yml
+  - shared/sdl2-image.yml
+  - shared/sdl2-ttf.yml
+  - shared/zzip.yml
+  - shared/miniupnpc.yml
+  - shared/asio.yml
+  - shared/ebml.yml
+  - shared/matroska.yml
+  - shared/libyuv.yml
+  - shared/alephone.yml
+
+  - name: sprintathon-launcher
+    buildsystem: simple
+    build-commands:
+      - cc -O2 sprintathon-game-selector.c -o sprintathon-game-selector $(pkg-config --cflags --libs gtk+-3.0)
+      - install -Dm755 sprintathon-game-selector /app/bin/sprintathon-game-selector
+      - install -Dm755 sprintathon.sh /app/bin/sprintathon
+      - install -Dm644 sprintathon.desktop /app/share/applications/io.github.visageeee.Sprintathon.desktop
+      - install -Dm644 marathon-infinity.png /app/share/icons/hicolor/512x512/apps/io.github.visageeee.Sprintathon.png
+    sources:
+      - type: file
+        path: sprintathon-game-selector.c
+      - type: file
+        path: sprintathon.sh
+      - type: file
+        path: sprintathon.desktop
+      - type: file
+        path: marathon-infinity.png

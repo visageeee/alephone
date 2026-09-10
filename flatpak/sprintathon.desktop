@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Sprintathon
+Comment=Classic Marathon games with modern movement and mouselook
+Exec=sprintathon
+Icon=io.github.visageeee.Sprintathon
+Categories=Game;ActionGame;
+Terminal=false
