@@ -39,3 +39,10 @@ compile_commands.json
 
 # Local patch backups
 *.before-*
+
+# Local Flatpak build output
+.flatpak-builder/
+flatpak-build/
+flatpak-repo/
+*.flatpak
+*~
