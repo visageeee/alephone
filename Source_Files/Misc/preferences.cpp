@@ -3691,6 +3691,20 @@ void read_preferences ()
 	// it is installed. Existing user plugin choices remain untouched.
 	if (defaults)
 	{
+		// Scenario Default Preferences.xml files are parsed after the C++
+		// defaults and may restore Aleph One's legacy rendering choices.
+		// Reapply Sprintathon's intended first-run presentation here.
+		graphics_preferences->screen_mode.gamma_level = 3; // Normal
+		graphics_preferences->screen_mode.fov = 85;
+		graphics_preferences->screen_mode.acceleration = _opengl_acceleration;
+		graphics_preferences->screen_mode.bobbing_type = BobbingType::weapon_only;
+		graphics_preferences->fps_target = 60;
+		graphics_preferences->OGL_Configure.Flags &= ~OGL_Flag_MimicSW;
+		graphics_preferences->OGL_Configure.Flags |= OGL_Flag_LiqSeeThru;
+		graphics_preferences->OGL_Configure.BillboardXY = true;
+		input_preferences->modifiers |= _inputmod_interchange_run_walk;
+		input_preferences->modifiers &= ~_inputmod_run_key_toggle;
+
 		Plugin* enhanced_hud = nullptr;
 		for (auto& plugin : *Plugins::instance())
 		{
