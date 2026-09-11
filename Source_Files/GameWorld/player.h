@@ -431,11 +431,21 @@ struct player_data
 	bool sprint_blocked_until_release;		// prevents held-key sprint restarts
 	uint16 sprint_ramp_ticks;			// time spent accelerating this sprint
 	bool wall_jump_key_was_down;			// prevents repeated wall jumps
+	uint8 wall_run_jump_cooldown_ticks;	// delay between sprint wall-run jumps
 	bool crouch_key_was_down;			// edge detection for sprint slide
 	bool reload_key_was_down;			// edge detection for manual reload
 	bool slide_punch_pending;			// emit one melee projectile on slide start
 	uint8 slide_ticks_remaining;			// short forced-movement slide
 	uint8 slide_recovery_ticks;			// post-slide weapon recovery
+	bool flying_kick_active;			// airborne crouch attack remains active until landing
+	bool flying_kick_requested;		// fresh crouch press, consumed by authoritative physics
+	uint8 flying_kick_ticks;			// visual entrance timer for the kick legs
+	uint8 flying_kick_landing_ticks;		// held-crouch landing/get-up transition
+	uint8 flying_kick_exit_ticks;		// quick downward exit after kick completion
+	bool flying_kick_recovery_pending;	// wall-kick rebound still needs landing handling
+	bool wall_kick_rearm_pending;		// wall impact may permit another kick after cooldown
+	uint8 wall_kick_cooldown_ticks;		// delay before another airborne wall kick
+	uint8 flying_kick_oxygen_recharge_delay;	// ticks before positive oxygen recovery resumes
 	int16 sprintathon_camera_roll;		// signed visual roll, in engine angle units
 	int16 sprintathon_camera_pitch;		// visual-only pitch offset
 

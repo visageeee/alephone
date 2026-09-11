@@ -186,6 +186,16 @@ void initialize_player_physics_variables(
 	player->slide_punch_pending= false;
 	player->slide_ticks_remaining= 0;
 	player->slide_recovery_ticks= 0;
+	player->flying_kick_active= false;
+	player->flying_kick_requested= false;
+	player->flying_kick_ticks= 0;
+	player->flying_kick_landing_ticks= 0;
+	player->flying_kick_exit_ticks= 0;
+	player->flying_kick_recovery_pending= false;
+	player->wall_kick_rearm_pending= false;
+	player->wall_kick_cooldown_ticks= 0;
+	player->wall_run_jump_cooldown_ticks= 0;
+	player->flying_kick_oxygen_recharge_delay= 0;
 	player->sprintathon_camera_roll= 0;
 	player->sprintathon_camera_pitch= 0;
 	
@@ -647,7 +657,9 @@ static void physics_update(
 	// Ease in quickly and return a little more gently. Keep a one-unit minimum
 	// step so the fixed-angle value always reaches its target.
 	int16 target_camera_pitch= 0;
-	if (modern_slide && player->slide_ticks_remaining>0)
+	if (modern_slide &&
+		(player->slide_ticks_remaining>0 ||
+		 player->flying_kick_landing_ticks>0))
 	{
 		// A stronger sideways lean and upward tilt during the slide.
 		target_wall_run_roll= (FULL_CIRCLE*9)/360;
@@ -707,6 +719,45 @@ static void physics_update(
 	const bool touching_ground =
 		delta_z <= CLOSE_ENOUGH_TO_FLOOR;
 
+	// Input is sampled before this authoritative ground test. Consume the
+	// fresh-crouch latch here so a kick cannot be lost to stale contact flags.
+	if (player->flying_kick_requested)
+	{
+		const int16 minimum_move_oxygen=
+			(PLAYER_MAXIMUM_SUIT_OXYGEN*8)/100;
+		if (modern_slide && !touching_ground &&
+			!(variables->flags&_FEET_BELOW_MEDIA_BIT) &&
+			player->suit_oxygen>=minimum_move_oxygen &&
+			!player->flying_kick_active &&
+			(!player->flying_kick_recovery_pending ||
+			 (player->wall_kick_rearm_pending &&
+			  player->wall_kick_cooldown_ticks==0)) &&
+			player->flying_kick_landing_ticks==0)
+		{
+			player->flying_kick_active= true;
+			player->flying_kick_ticks= 0;
+			player->flying_kick_exit_ticks= 0;
+			player->flying_kick_recovery_pending= false;
+			player->wall_kick_rearm_pending= false;
+			player->slide_punch_pending= false;
+			sprintathon_begin_sweep_attack(player->monster_index);
+
+			// Charge once when the airborne kick is actually accepted, not
+			// continuously while crouch remains held.
+			const int16 flying_kick_oxygen_cost=
+				(PLAYER_MAXIMUM_SUIT_OXYGEN*8)/100;
+			player->suit_oxygen= std::max<int16>(
+				0, player->suit_oxygen-flying_kick_oxygen_cost);
+			player->flying_kick_oxygen_recharge_delay= 10;
+		}
+		player->flying_kick_requested= false;
+	}
+
+	if (player->wall_kick_cooldown_ticks>0)
+		player->wall_kick_cooldown_ticks--;
+	if (player->wall_run_jump_cooldown_ticks>0)
+		player->wall_run_jump_cooldown_ticks--;
+
 	if (touching_ground)
 	{
 		variables->jump_grace_ticks = 0;
@@ -728,7 +779,8 @@ static void physics_update(
 			(constants->height * 7) / 16;
 
 		const _fixed target_height =
-			player->slide_ticks_remaining > 0 ?
+			(player->slide_ticks_remaining > 0 ||
+			 player->flying_kick_active) ?
 				sliding_height :
 			(action_flags & _microphone_button) ?
 				crouching_height :
@@ -992,7 +1044,10 @@ static void physics_update(
 	 * velocity are capped at 60 percent while crouch is held.
 	 */
 	if (modern_crouch && (action_flags & _microphone_button) &&
-		player->slide_ticks_remaining==0)
+		player->slide_ticks_remaining==0 &&
+		!player->flying_kick_active &&
+		player->flying_kick_landing_ticks==0 &&
+		!player->flying_kick_recovery_pending)
 	{
 		const _fixed crouch_forward_limit =
 			(constants->maximum_forward_velocity * 3) / 5;
@@ -1012,15 +1067,139 @@ static void physics_update(
 			crouch_sideways_limit);
 	}
 
-	if (modern_slide && player->slide_ticks_remaining>0)
+	if (modern_slide &&
+		(player->slide_ticks_remaining>0 || player->flying_kick_active))
 	{
-		const int slide_duration= (TICKS_PER_SECOND*3)/4;
-		const _fixed slide_speed=
-			(constants->maximum_forward_velocity*player->slide_ticks_remaining*2)/
-			std::max<int>(1, slide_duration);
-		variables->velocity= std::max<_fixed>(slide_speed,
-			constants->maximum_forward_velocity/3);
-		variables->perpendicular_velocity= 0;
+		if (player->slide_ticks_remaining>0)
+		{
+			const int slide_duration= (TICKS_PER_SECOND*3)/4;
+			const _fixed slide_speed=
+				(constants->maximum_forward_velocity*player->slide_ticks_remaining*2)/
+				std::max<int>(1, slide_duration);
+			variables->velocity= std::max<_fixed>(slide_speed,
+				constants->maximum_forward_velocity/3);
+			variables->perpendicular_velocity= 0;
+		}
+		else
+		{
+			// A flying kick does not alter airborne momentum. While crouch is
+			// held, sweep the live facing direction and strike each newly
+			// encountered target no more than once during this kick.
+			if (player->flying_kick_ticks<UINT8_MAX)
+				player->flying_kick_ticks++;
+
+			object_data *player_object= get_object_data(player->object_index);
+			world_point2d probe_start;
+			probe_start.x= player_object->location.x;
+			probe_start.y= player_object->location.y;
+			world_point2d probe_end= probe_start;
+			translate_point2d(&probe_end, WORLD_ONE/3, player->facing);
+			const short probe_line_index= find_line_crossed_leaving_polygon(
+				player_object->polygon, &probe_start, &probe_end);
+			const bool solid_wall_ahead=
+				probe_line_index!=NONE &&
+				LINE_IS_SOLID(get_line_data(probe_line_index));
+			if (!(action_flags&_microphone_button))
+			{
+				// Releasing crouch retracts the legs immediately instead of
+				// holding the kick pose until the player reaches the floor.
+				player->flying_kick_active= false;
+				player->flying_kick_ticks= 0;
+				player->flying_kick_exit_ticks= 8;
+				player->flying_kick_recovery_pending= true;
+				player->wall_kick_rearm_pending= false;
+			}
+			else if (solid_wall_ahead)
+			{
+				// A wall kick replaces the incoming motion. Leaving either the
+				// player-controlled velocity or an older external impulse intact
+				// lets held movement cancel or skew the rebound.
+				variables->velocity= 0;
+				variables->perpendicular_velocity= 0;
+				variables->external_velocity.i= 0;
+				variables->external_velocity.j= 0;
+
+				// Launch opposite the angle of the kick. Wall geometry confirms
+				// contact but no longer determines the rebound direction.
+				const int32 kick_cosine= cosine_table[player->facing];
+				const int32 kick_sine= sine_table[player->facing];
+				const _fixed rebound=
+					(constants->maximum_forward_velocity*3)/4;
+				variables->external_velocity.i=
+					-(kick_cosine*rebound)>>TRIG_SHIFT;
+				variables->external_velocity.j=
+					-(kick_sine*rebound)>>TRIG_SHIFT;
+
+				// A strong enough lift to turn a wall kick into a useful
+				// traversal move rather than merely a collision reaction.
+				variables->external_velocity.k= FIXED_ONE/12;
+
+				play_object_sound(
+					player->object_index, _snd_fist_hitting, player_is_local);
+				player->flying_kick_active= false;
+				player->flying_kick_ticks= 0;
+				player->flying_kick_exit_ticks= 8;
+				player->flying_kick_recovery_pending= true;
+				player->wall_kick_rearm_pending= true;
+				player->wall_kick_cooldown_ticks=
+					TICKS_PER_SECOND/2;
+			}
+			else if (action_flags&_microphone_button)
+			{
+				const angle movement_facing=
+					FIXED_INTEGERAL_PART(variables->direction);
+				const int64_t movement_cosine=
+					cosine_table[movement_facing];
+				const int64_t movement_sine=
+					sine_table[movement_facing];
+				const int64_t speed_x=
+					((variables->velocity*movement_cosine-
+					  variables->perpendicular_velocity*movement_sine)>>
+					 TRIG_SHIFT)+variables->external_velocity.i;
+				const int64_t speed_y=
+					((variables->velocity*movement_sine+
+					  variables->perpendicular_velocity*movement_cosine)>>
+					 TRIG_SHIFT)+variables->external_velocity.j;
+				const uint32 speed_squared= static_cast<uint32>(
+					std::min<int64_t>(speed_x*speed_x+speed_y*speed_y,
+						UINT32_MAX));
+				const _fixed horizontal_speed= isqrt(speed_squared);
+				const _fixed speed_ratio= static_cast<_fixed>(
+					std::min<int64_t>(
+						FIXED_ONE*2,
+						(static_cast<int64_t>(horizontal_speed)*FIXED_ONE)/
+							std::max<_fixed>(1,
+								constants->maximum_forward_velocity)));
+				const _fixed kick_damage_scale= PIN(
+					(FIXED_ONE*3)/16+speed_ratio/16,
+					(FIXED_ONE*3)/16,
+					(FIXED_ONE*5)/16);
+
+				const bool hit_monster= sprintathon_slide_attack(
+					player->monster_index,
+					player->facing,
+					&player->camera_location,
+					player->camera_polygon_index,
+					kick_damage_scale);
+
+				if (hit_monster)
+				{
+					// One half of the wall kick's horizontal rebound. Unlike a
+					// wall kick this is additive, so it checks forward momentum
+					// without turning every monster impact into a full reversal.
+					const _fixed monster_rebound=
+						(constants->maximum_forward_velocity*3)/8;
+					variables->external_velocity.i-=
+						(cosine_table[player->facing]*monster_rebound)>>
+						TRIG_SHIFT;
+					variables->external_velocity.j-=
+						(sine_table[player->facing]*monster_rebound)>>
+						TRIG_SHIFT;
+					variables->external_velocity.k= std::max<_fixed>(
+						variables->external_velocity.k, FIXED_ONE/24);
+				}
+			}
+		}
 
 		if (player->slide_punch_pending)
 		{
@@ -1056,16 +1235,64 @@ static void physics_update(
 
 			player->slide_punch_pending= false;
 		}
-		player->slide_ticks_remaining--;
-		if (player->slide_ticks_remaining==0)
+		if (player->slide_ticks_remaining>0)
+		{
+			player->slide_ticks_remaining--;
+			if (player->slide_ticks_remaining==0)
+			{
+				variables->velocity= 0;
+				variables->perpendicular_velocity= 0;
+
+				// Together with the final eight slide ticks, this creates
+				// a total 24-tick weapon recovery.
+				player->slide_recovery_ticks= 16;
+			}
+		}
+		else if (player->flying_kick_active && touching_ground)
+		{
+			player->flying_kick_active= false;
+			player->flying_kick_ticks= 0;
+
+			if (action_flags&_microphone_button)
+			{
+				variables->velocity= 0;
+				variables->perpendicular_velocity= 0;
+				player->flying_kick_landing_ticks= 12;
+				player->flying_kick_exit_ticks= 0;
+			}
+			else player->flying_kick_exit_ticks= 8;
+		}
+	}
+
+	if (player->flying_kick_recovery_pending && touching_ground)
+	{
+		player->flying_kick_recovery_pending= false;
+		player->wall_kick_rearm_pending= false;
+		player->wall_kick_cooldown_ticks= 0;
+		if (action_flags&_microphone_button)
 		{
 			variables->velocity= 0;
 			variables->perpendicular_velocity= 0;
 
-			// Together with the final eight slide ticks, this creates
-			// a total 24-tick weapon recovery.
-			player->slide_recovery_ticks= 16;
+			// The legs already retracted after release or wall impact. Start
+			// only the stance/weapon recovery; replaying the landing leg phase
+			// made the sprite pop back into view for a frame.
+			player->flying_kick_landing_ticks= 0;
+			player->flying_kick_exit_ticks= 0;
+			player->slide_recovery_ticks= 24;
 		}
+	}
+
+	if (player->flying_kick_exit_ticks>0)
+		player->flying_kick_exit_ticks--;
+
+	else if (player->flying_kick_landing_ticks>0)
+	{
+		variables->velocity= 0;
+		variables->perpendicular_velocity= 0;
+		player->flying_kick_landing_ticks--;
+		if (player->flying_kick_landing_ticks==0)
+			player->slide_recovery_ticks= 24;
 	}
 	else if (player->slide_recovery_ticks>0)
 	{
@@ -1099,6 +1326,7 @@ static void physics_update(
 	const bool can_wall_jump =
 		modern_wall_jump && wall_jump_button &&
 		!player->wall_jump_key_was_down &&
+		player->wall_run_jump_cooldown_ticks==0 &&
 		player->sprinting &&
 		delta_z > 0 &&
 		(variables->flags & _HORIZONTAL_COLLISION_BIT) &&
@@ -1143,6 +1371,8 @@ static void physics_update(
 			player->sprint_ticks_remaining = 0;
 			player->sprint_cooldown_ticks =
 				2 * TICKS_PER_SECOND;
+			player->wall_run_jump_cooldown_ticks=
+				(TICKS_PER_SECOND*3)/4;
 		}
 
 		player->wall_jump_key_was_down = true;
@@ -1342,12 +1572,23 @@ static void physics_update(
 		else if (modern_jump && (!feet_in_water || touching_ground))
 		{
 			const bool can_jump =
-				variables->jump_grace_ticks <= jump_grace_limit;
+				variables->jump_grace_ticks <= jump_grace_limit &&
+				player->suit_oxygen >=
+					(PLAYER_MAXIMUM_SUIT_OXYGEN*8)/100;
 
 			if (can_jump &&
 				!(variables->flags & _JUMP_HELD_BIT))
 			{
 				variables->external_velocity.k = FIXED_ONE / 13;
+
+				// Charge once per accepted ground/coyote-time jump. Holding the
+				// key, swimming, mantling and wall jumping do not repeat this cost.
+				const int16 jump_oxygen_cost=
+					(PLAYER_MAXIMUM_SUIT_OXYGEN*5)/100;
+				player->suit_oxygen= std::max<int16>(
+					0, player->suit_oxygen-jump_oxygen_cost);
+				player->flying_kick_oxygen_recharge_delay= 10;
+
 				if (feet_in_water)
 					variables->flags |= _SUBMERGED_GROUND_JUMP_BIT;
 
