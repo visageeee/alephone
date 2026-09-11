@@ -415,7 +415,8 @@ void move_projectiles(
 							if (flags&_projectile_hit_scenery) damage_scenery(obstruction_index);
 							
 							/* cause damage, if we can */
-							if (!PROJECTILE_HAS_CAUSED_DAMAGE(projectile))
+							if (!PROJECTILE_HAS_CAUSED_DAMAGE(projectile) &&
+								!PROJECTILE_IS_SLIDE_PUNCH(projectile))
 							{
 								struct damage_definition *damage= &definition->damage;
 								
@@ -459,6 +460,31 @@ void move_projectiles(
 									{
 										if (monster_obstruction_index!=NONE) damage_monster(monster_obstruction_index, projectile->owner_index, projectile->owner_type, &old_location, damage, projectile_index);
 									}
+								}
+							}
+
+							/*
+							 * A slide hit carries the target forward from the
+							 * player and gives it a modest upward lift.
+							 */
+							if (PROJECTILE_IS_SLIDE_PUNCH(projectile) &&
+								projectile->owner_index != NONE)
+							{
+								monster_data *owner =
+									get_monster_data(projectile->owner_index);
+
+								if (SLOT_IS_USED(owner))
+								{
+									object_data *owner_object =
+										get_object_data(owner->object_index);
+									object_data *projectile_object =
+										get_object_data(projectile->object_index);
+
+									sprintathon_slide_attack(
+										projectile->owner_index,
+										projectile_object->facing,
+										&owner_object->location,
+										owner_object->polygon);
 								}
 							}
               

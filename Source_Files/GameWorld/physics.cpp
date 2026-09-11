@@ -185,6 +185,7 @@ void initialize_player_physics_variables(
 	player->reload_key_was_down= false;
 	player->slide_punch_pending= false;
 	player->slide_ticks_remaining= 0;
+	player->slide_recovery_ticks= 0;
 	player->sprintathon_camera_roll= 0;
 	player->sprintathon_camera_pitch= 0;
 	
@@ -648,8 +649,9 @@ static void physics_update(
 	int16 target_camera_pitch= 0;
 	if (modern_slide && player->slide_ticks_remaining>0)
 	{
-		target_wall_run_roll= (FULL_CIRCLE*6)/360;
-		target_camera_pitch= (FULL_CIRCLE*5)/360;
+		// A stronger sideways lean and upward tilt during the slide.
+		target_wall_run_roll= (FULL_CIRCLE*9)/360;
+		target_camera_pitch= (FULL_CIRCLE*7)/360;
 	}
 	const int16 roll_difference= target_wall_run_roll-player->sprintathon_camera_roll;
 	if (roll_difference!=0)
@@ -722,10 +724,15 @@ static void physics_update(
 	{
 		const _fixed standing_height = constants->height;
 		const _fixed crouching_height = constants->height / 2;
+		const _fixed sliding_height =
+			(constants->height * 7) / 16;
+
 		const _fixed target_height =
-			((action_flags & _microphone_button) ||
-			 player->slide_ticks_remaining>0) ?
-				crouching_height : standing_height;
+			player->slide_ticks_remaining > 0 ?
+				sliding_height :
+			(action_flags & _microphone_button) ?
+				crouching_height :
+				standing_height;
 		const _fixed crouch_step =
 			std::max<_fixed>(FIXED_ONE / 64, standing_height / 8);
 
@@ -1028,9 +1035,25 @@ static void physics_update(
 			vector.x= destination.x-origin.x;
 			vector.y= destination.y-origin.y;
 			vector.z= destination.z-origin.z;
-			new_projectile(&origin, player->camera_polygon_index, &vector, 0,
-				_projectile_fist, player->monster_index, _monster_marine,
-				NONE, (FIXED_ONE*3)/2);
+			const short slide_projectile_index =
+				new_projectile(
+					&origin,
+					player->camera_polygon_index,
+					&vector,
+					0,
+					_projectile_fist,
+					player->monster_index,
+					_monster_marine,
+					NONE,
+					FIXED_ONE / 8);
+
+			if (slide_projectile_index != NONE)
+			{
+				SET_PROJECTILE_SLIDE_PUNCH_STATUS(
+					get_projectile_data(slide_projectile_index),
+					true);
+			}
+
 			player->slide_punch_pending= false;
 		}
 		player->slide_ticks_remaining--;
@@ -1038,7 +1061,15 @@ static void physics_update(
 		{
 			variables->velocity= 0;
 			variables->perpendicular_velocity= 0;
+
+			// Together with the final eight slide ticks, this creates
+			// a total 24-tick weapon recovery.
+			player->slide_recovery_ticks= 16;
 		}
+	}
+	else if (player->slide_recovery_ticks>0)
+	{
+		player->slide_recovery_ticks--;
 	}
 
 	const bool dry_grab_requested =

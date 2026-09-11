@@ -7,6 +7,7 @@ SUBDIRS = Source_Files Steam tools data
 AUTOMAKE_OPTIONS = 1.5 foreign dist-bzip2 no-dist-gzip
 
 EXTRA_DIST = \
+	gfx/slidelegs.png                                                          	snd/slide.ogg                                                              \
 	data/AlephSansMono-Bold.ttf                                                 \
 	data/AlephSansMonoLicense.txt                                               \
 	data/powered-by-alephone.svg                                                \

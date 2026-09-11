@@ -740,14 +740,34 @@ void update_players(ActionQueues* inActionQueuesToUse, bool inPredictive)
 		if (input_preferences->sprintathon_enabled &&
 			input_preferences->sprintathon_slide &&
 			input_preferences->sprintathon_crouch &&
-			player->sprinting && crouch_key_down &&
+			player->sprinting &&
+			player->sprint_ramp_ticks >=
+				(TICKS_PER_SECOND * 4) / 5 &&
+			crouch_key_down &&
 			!player->crouch_key_was_down &&
 			!TEST_FLAG(player->variables.flags, _ABOVE_GROUND_BIT) &&
 			!TEST_FLAG(player->variables.flags, _FEET_BELOW_MEDIA_BIT))
 		{
 			player->slide_ticks_remaining =
 				(TICKS_PER_SECOND * 3) / 4;
+			player->slide_recovery_ticks = 0;
 			player->slide_punch_pending = true;
+
+			if (player_index == current_player_index)
+			{
+				FileSpecifier slide_sound("snd/slide.ogg");
+
+				if (slide_sound.Exists() ||
+					slide_sound.SetNameWithPath(
+						"Sprintathon/slide.ogg"))
+				{
+					SoundParameters parameters;
+					SoundManager::instance()->PlayExternalSound(
+						slide_sound,
+						parameters);
+				}
+			}
+
 			player->sprinting = false;
 			player->sprint_blocked_until_release = true;
 		}
@@ -798,9 +818,20 @@ void update_players(ActionQueues* inActionQueuesToUse, bool inPredictive)
 		}
 		else if (player->slide_ticks_remaining > 0)
 		{
-			// Sliding keeps the weapon triggers locked and retains run animation.
 			action_flags |= _run_dont_walk;
-			action_flags &= ~(_left_trigger_state | _right_trigger_state);
+
+			// Begin the firing lock while the legs leave the screen.
+			if (player->slide_ticks_remaining <= 8)
+			{
+				action_flags &=
+					~(_left_trigger_state | _right_trigger_state);
+			}
+		}
+		else if (player->slide_recovery_ticks > 0)
+		{
+			// Keep firing locked while the player regains their stance.
+			action_flags &=
+				~(_left_trigger_state | _right_trigger_state);
 		}
 
 		// if we’ve got the ball we can’t run (that sucks)

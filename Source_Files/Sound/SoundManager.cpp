@@ -366,6 +366,22 @@ std::shared_ptr<SoundPlayer> SoundManager::PlaySound(LoadedResource& rsrc, const
 	return ManageSound({ header, data }, parameters);
 }
 
+std::shared_ptr<SoundPlayer> SoundManager::PlayExternalSound(
+	FileSpecifier& file,
+	const SoundParameters& parameters)
+{
+	if (!active || OpenALManager::Get()->GetMasterVolume() <= 0)
+		return std::shared_ptr<SoundPlayer>();
+
+	ExternalSoundHeader header;
+	std::shared_ptr<SoundData> data = header.LoadExternal(file);
+
+	if (!data)
+		return std::shared_ptr<SoundPlayer>();
+
+	return ManageSound({header, data}, parameters);
+}
+
 std::shared_ptr<SoundPlayer> SoundManager::PlaySound(short sound_index, 
 			     world_location3d *source,
 			     short identifier, // NONE is no identifier and the sound is immediately orphaned

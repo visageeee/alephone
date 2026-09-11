@@ -18,6 +18,7 @@
 #include "weapons.h"
 #include "AnimatedTextures.h"
 #include "OGL_Faders.h"
+#include "OGL_Blitter.h"
 #include "OGL_Textures.h"
 #include "OGL_Shader.h"
 #include "ChaseCam.h"
@@ -1252,6 +1253,115 @@ extern void position_sprite_axis(short *x0, short *x1, short scale_width, short 
 
 extern GLdouble Screen_2_Clip[16];
 
+static void render_slide_legs(view_data *view, RenderStep renderStep)
+{
+	if (renderStep != kDiffuse ||
+		!input_preferences->sprintathon_enabled ||
+		!input_preferences->sprintathon_slide ||
+		!current_player ||
+		current_player->slide_ticks_remaining == 0)
+	{
+		return;
+	}
+
+	static OGL_Blitter slide_legs;
+	static bool load_attempted = false;
+
+	if (!load_attempted)
+	{
+		load_attempted = true;
+		FileSpecifier file("gfx/slidelegs.png");
+		if (file.Exists() ||
+			file.SetNameWithPath("Sprintathon/slidelegs.png"))
+		{
+			ImageDescriptor image;
+			if (image.LoadFromFile(file, ImageLoader_Colors, 0))
+				slide_legs.Load(image);
+		}
+	}
+
+	if (!slide_legs.Loaded())
+		return;
+
+	constexpr int slide_duration = (TICKS_PER_SECOND * 3) / 4;
+	const int ticks_remaining = A1_PIN(
+		static_cast<int>(current_player->slide_ticks_remaining),
+		0,
+		slide_duration);
+	const int ticks_elapsed = slide_duration - ticks_remaining;
+
+	/*
+	 * Use position rather than transparency for the animation. The legs
+	 * rise quickly at the start, remain fully visible, then drop rapidly
+	 * below the screen over the final eight ticks.
+	 */
+	float slide_in = A1_PIN(ticks_elapsed / 4.0f, 0.0f, 1.0f);
+	float slide_out = A1_PIN(ticks_remaining / 8.0f, 0.0f, 1.0f);
+
+	slide_in =
+		slide_in * slide_in * (3.0f - 2.0f * slide_in);
+	slide_out =
+		slide_out * slide_out * (3.0f - 2.0f * slide_out);
+
+	const float visibility =
+		std::min(slide_in, slide_out);
+
+	const float sprite_height = view->screen_height * 0.78f;
+	const float sprite_width = sprite_height *
+		static_cast<float>(slide_legs.UnscaledWidth()) /
+		static_cast<float>(slide_legs.UnscaledHeight());
+	// Keep most of the body below the frame at level pitch. Looking down
+	// progressively reveals it, while the slide animation moves it up from
+	// below rather than abruptly appearing in the middle of the view.
+	/*
+	 * Follow the player's live aim instead of the pitch stored in the
+	 * current rendered view. This lets the body remain visually attached
+	 * to the floor while the player looks around during the slide.
+	 */
+	const fixed_angle live_pitch =
+		FIXED_INTEGERAL_PART(
+			current_player->variables.elevation) * FIXED_ONE +
+		virtual_aim_delta().pitch;
+
+	const float downward_degrees =
+		-static_cast<float>(live_pitch) * FixedAngleToDegrees;
+
+	// Use both downward and upward pitch so the body travels continuously
+	// rather than stopping at its level-view position.
+	const float pitch_position =
+		A1_PIN((downward_degrees + 45.0f) / 120.0f, 0.0f, 1.0f);
+
+	float floor_reveal =
+		pitch_position * pitch_position *
+		(3.0f - 2.0f * pitch_position);
+
+	/*
+	 * Looking upward leaves only the boots at the bottom edge. Looking
+	 * downward brings nearly the entire body into view.
+	 */
+	const float revealed_fraction =
+		0.12f + 0.88f * floor_reveal;
+
+	// A small independent offset creates the entrance from below without
+	// allowing the fade animation to hide the sprite completely.
+	const float slide_in_offset =
+		(1.0f - visibility) * sprite_height * 0.15f;
+
+	const Image_Rect destination(
+		(view->screen_width - sprite_width) * 0.5f,
+		view->screen_height -
+			sprite_height * revealed_fraction +
+			slide_in_offset,
+		sprite_width,
+		sprite_height);
+
+	// The sprite stays opaque; visibility controls only its vertical position.
+	slide_legs.tint_color_a = 1.0f;
+	slide_legs.rotation = 0.0f;
+	Shader::disable();
+	slide_legs.Draw(destination);
+}
+
 void RenderRasterize_Shader::render_viewer_sprite_layer(RenderStep renderStep)
 {
         if (!view->show_weapons_in_hand) return;
@@ -1266,6 +1376,9 @@ void RenderRasterize_Shader::render_viewer_sprite_layer(RenderStep renderStep)
         glMatrixMode(GL_MODELVIEW);
         glPushMatrix();
         glLoadIdentity();
+
+	// Draw the sliding body beneath the normal first-person weapon sprites.
+	render_slide_legs(view, renderStep);
 
         rectangle_definition rect;
 	weapon_display_information display_data;
@@ -1360,10 +1473,38 @@ void RenderRasterize_Shader::render_viewer_sprite_layer(RenderStep renderStep)
 		
 		// Smoothly lower the weapon while sprinting.
 		static float sprint_weapon_lower = 0.0f;
-		const float sprint_lower_target =
-			(current_player && current_player->sprinting)
-				? static_cast<float>(view->screen_height) / 8.0f
-				: 0.0f;
+		float sprint_lower_target = 0.0f;
+
+		if (current_player)
+		{
+			if (current_player->sprinting)
+			{
+				sprint_lower_target =
+					static_cast<float>(view->screen_height) / 8.0f;
+			}
+
+			/*
+			 * Lower the weapon more deeply during the final slide
+			 * phase, then raise it throughout the 16-tick recovery.
+			 */
+			float slide_recovery_amount = 0.0f;
+
+			if (current_player->slide_ticks_remaining > 0 &&
+				current_player->slide_ticks_remaining <= 8)
+			{
+				slide_recovery_amount = 1.0f;
+			}
+			else if (current_player->slide_recovery_ticks > 0)
+			{
+				slide_recovery_amount =
+					current_player->slide_recovery_ticks / 16.0f;
+			}
+
+			sprint_lower_target = std::max(
+				sprint_lower_target,
+				slide_recovery_amount *
+					static_cast<float>(view->screen_height) * 0.42f);
+		}
 
 		sprint_weapon_lower +=
 			(sprint_lower_target - sprint_weapon_lower) * 0.16f;

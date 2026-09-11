@@ -6,6 +6,9 @@ mmldir = $(pkgdatadir)/MML
 mml_DATA = Interface_Rects.mml Transparent_Liquids.mml \
   Transparent_Sprites.mml
 
+sprintathondir = $(pkgdatadir)/Sprintathon
+sprintathon_DATA =   $(top_srcdir)/gfx/slidelegs.png   $(top_srcdir)/snd/slide.ogg
+
 EXTRA_DIST = $(mml_DATA) alephone.xml
 
 

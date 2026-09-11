@@ -2256,6 +2256,119 @@ static short get_monster_attitude(
 	return attitude;
 }
 
+void sprintathon_slide_attack(
+	short aggressor_index,
+	angle facing,
+	const world_point3d *origin,
+	short origin_polygon_index)
+{
+	const int32 forward_x = cosine_table[facing];
+	const int32 forward_y = sine_table[facing];
+
+	// Standard fist damage at half the former 1.5x slide modifier.
+	damage_definition damage = {
+		_damage_fist,
+		0,
+		50,
+		10,
+		FIXED_ONE / 4
+	};
+
+	for (short target_index = 0;
+		target_index < MAXIMUM_MONSTERS_PER_MAP;
+		++target_index)
+	{
+		monster_data *target = monsters + target_index;
+
+		if (!SLOT_IS_USED(target) ||
+			target_index == aggressor_index ||
+			MONSTER_IS_DYING(target) ||
+			get_monster_attitude(aggressor_index, target_index) != _hostile)
+		{
+			continue;
+		}
+
+		object_data *target_object =
+			get_object_data(target->object_index);
+		monster_definition *target_definition =
+			get_monster_definition(target->type);
+
+		const int32 dx = target_object->location.x - origin->x;
+		const int32 dy = target_object->location.y - origin->y;
+
+		const int32 forward_distance =
+			(dx * forward_x + dy * forward_y) >> TRIG_SHIFT;
+		const int32 sideways_distance =
+			(-dx * forward_y + dy * forward_x) >> TRIG_SHIFT;
+
+		// Reach approximately one world unit in front of the player.
+		if (forward_distance <= 0 ||
+			forward_distance >
+				WORLD_ONE + target_definition->radius)
+		{
+			continue;
+		}
+
+		/*
+		 * A widening forward wedge. It is broad enough to catch a group,
+		 * but does not become a radial attack behind the player.
+		 */
+		const int32 half_width =
+			WORLD_ONE / 4 +
+			forward_distance / 2 +
+			target_definition->radius;
+
+		if (std::abs(sideways_distance) > half_width)
+			continue;
+
+		// Require a reasonable vertical overlap.
+		const int32 target_middle =
+			target_object->location.z +
+			target_definition->height / 2;
+
+		if (std::abs(target_middle - origin->z) >
+			WORLD_ONE)
+		{
+			continue;
+		}
+
+		// Monsters behind walls are not affected.
+		if (line_is_obstructed(
+			origin_polygon_index,
+			const_cast<world_point3d *>(origin),
+			target_object->polygon,
+			&target_object->location))
+		{
+			continue;
+		}
+
+		/*
+		 * Pass no epicentre to suppress the fist damage type's normal
+		 * knockback. We apply a controlled custom impulse below.
+		 */
+		damage_monster(
+			target_index,
+			aggressor_index,
+			get_monster_data(aggressor_index)->type,
+			nullptr,
+			&damage,
+			NONE);
+
+		// Push directly away from the player: backward in the centre,
+		// and increasingly sideways for targets near either edge.
+		if (SLOT_IS_USED(target))
+		{
+			const angle push_direction = arctangent(dx, dy);
+
+			accelerate_monster(
+				target_index,
+				85,
+				push_direction,
+				30);
+		}
+	}
+}
+
 /* find_closest_appropriate_target() tries to do just that.  it is a little broken in that it
 	treats all monsters in a given polygon as if they were the same distance away, which could
 	result in strange behavior.  the assumption is that if there is a more accessable hostile monster

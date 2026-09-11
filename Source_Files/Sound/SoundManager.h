@@ -68,6 +68,7 @@ public:
 	void UnloadAllSounds();
 
 	std::shared_ptr<SoundPlayer> PlaySound(LoadedResource& rsrc, const SoundParameters& parameters);
+	std::shared_ptr<SoundPlayer> PlayExternalSound(FileSpecifier& file, const SoundParameters& parameters);
 	std::shared_ptr<SoundPlayer> PlaySound(short sound_index, world_location3d *source, short identifier, _fixed pitch = _normal_frequency, bool soft_rewind = false);
 	std::shared_ptr<SoundPlayer> DirectPlaySound(short sound_index, angle direction, short volume, _fixed pitch);
 

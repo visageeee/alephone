@@ -313,6 +313,16 @@ monster_data *get_monster_data(
 
 bool bump_monster(short aggressor_index, short monster_index);
 
+/*
+ * Damage every visible hostile monster inside the player's short,
+ * forward-facing slide-impact cone.
+ */
+void sprintathon_slide_attack(
+	short aggressor_index,
+	angle facing,
+	const world_point3d *origin,
+	short origin_polygon_index);
+
 bool legal_polygon_height_change(short polygon_index, world_distance new_floor_height, world_distance new_ceiling_height, struct damage_definition *damage);
 void adjust_monster_for_polygon_height_change(short monster_index, short polygon_index, world_distance new_floor_height, world_distance new_ceiling_height);
 void accelerate_monster(short monster_index, angle direction, angle elevation, world_distance velocity);

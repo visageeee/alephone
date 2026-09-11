@@ -435,6 +435,7 @@ struct player_data
 	bool reload_key_was_down;			// edge detection for manual reload
 	bool slide_punch_pending;			// emit one melee projectile on slide start
 	uint8 slide_ticks_remaining;			// short forced-movement slide
+	uint8 slide_recovery_ticks;			// post-slide weapon recovery
 	int16 sprintathon_camera_roll;		// signed visual roll, in engine angle units
 	int16 sprintathon_camera_pitch;		// visual-only pitch offset
 
