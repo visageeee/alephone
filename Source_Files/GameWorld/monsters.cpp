@@ -93,6 +93,8 @@ Jan 12, 2003 (Loren Petrich)
 
 #include <string.h>
 #include <limits.h>
+#include <map>
+#include <set>
 
 #include "cseries.h"
 #include "map.h"
@@ -2256,14 +2258,23 @@ static short get_monster_attitude(
 	return attitude;
 }
 
-void sprintathon_slide_attack(
+static std::map<short, std::set<short> > sprintathon_sweep_hits;
+
+void sprintathon_begin_sweep_attack(short aggressor_index)
+{
+	sprintathon_sweep_hits[aggressor_index].clear();
+}
+
+bool sprintathon_slide_attack(
 	short aggressor_index,
 	angle facing,
 	const world_point3d *origin,
-	short origin_polygon_index)
+	short origin_polygon_index,
+	_fixed damage_scale)
 {
 	const int32 forward_x = cosine_table[facing];
 	const int32 forward_y = sine_table[facing];
+	bool hit_new_target = false;
 
 	// Standard fist damage at half the former 1.5x slide modifier.
 	damage_definition damage = {
@@ -2271,7 +2282,7 @@ void sprintathon_slide_attack(
 		0,
 		50,
 		10,
-		FIXED_ONE / 4
+		damage_scale
 	};
 
 	for (short target_index = 0;
@@ -2283,6 +2294,7 @@ void sprintathon_slide_attack(
 		if (!SLOT_IS_USED(target) ||
 			target_index == aggressor_index ||
 			MONSTER_IS_DYING(target) ||
+			sprintathon_sweep_hits[aggressor_index].count(target_index) != 0 ||
 			get_monster_attitude(aggressor_index, target_index) != _hostile)
 		{
 			continue;
@@ -2310,12 +2322,12 @@ void sprintathon_slide_attack(
 		}
 
 		/*
-		 * A widening forward wedge. It is broad enough to catch a group,
-		 * but does not become a radial attack behind the player.
+		 * A restrained widening wedge around the crosshair. Target radius is
+		 * retained so large monsters do not become artificially hard to hit.
 		 */
 		const int32 half_width =
-			WORLD_ONE / 4 +
-			forward_distance / 2 +
+			WORLD_ONE / 8 +
+			forward_distance / 4 +
 			target_definition->radius;
 
 		if (std::abs(sideways_distance) > half_width)
@@ -2346,6 +2358,9 @@ void sprintathon_slide_attack(
 		 * Pass no epicentre to suppress the fist damage type's normal
 		 * knockback. We apply a controlled custom impulse below.
 		 */
+		// Give every newly connected kick its own positional impact sound.
+		play_object_sound(target->object_index, _snd_fist_hitting);
+
 		damage_monster(
 			target_index,
 			aggressor_index,
@@ -2353,6 +2368,9 @@ void sprintathon_slide_attack(
 			nullptr,
 			&damage,
 			NONE);
+
+		sprintathon_sweep_hits[aggressor_index].insert(target_index);
+		hit_new_target = true;
 
 		// Push directly away from the player: backward in the centre,
 		// and increasingly sideways for targets near either edge.
@@ -2367,6 +2385,8 @@ void sprintathon_slide_attack(
 				30);
 		}
 	}
+
+	return hit_new_target;
 }
 
 /* find_closest_appropriate_target() tries to do just that.  it is a little broken in that it

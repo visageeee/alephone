@@ -1259,7 +1259,10 @@ static void render_slide_legs(view_data *view, RenderStep renderStep)
 		!input_preferences->sprintathon_enabled ||
 		!input_preferences->sprintathon_slide ||
 		!current_player ||
-		current_player->slide_ticks_remaining == 0)
+		(current_player->slide_ticks_remaining == 0 &&
+		 !current_player->flying_kick_active &&
+		 current_player->flying_kick_landing_ticks == 0 &&
+		 current_player->flying_kick_exit_ticks == 0))
 	{
 		return;
 	}
@@ -1292,11 +1295,20 @@ static void render_slide_legs(view_data *view, RenderStep renderStep)
 		return;
 
 	constexpr int slide_duration = (TICKS_PER_SECOND * 3) / 4;
-	const int ticks_remaining = A1_PIN(
-		static_cast<int>(current_player->slide_ticks_remaining),
-		0,
-		slide_duration);
-	const int ticks_elapsed = slide_duration - ticks_remaining;
+	const bool flying_kick = current_player->flying_kick_active;
+	const bool kick_landing =
+		current_player->flying_kick_landing_ticks > 0;
+	const bool kick_exit = current_player->flying_kick_exit_ticks > 0;
+	const int ticks_remaining = flying_kick ? slide_duration :
+		kick_landing ?
+			static_cast<int>(current_player->flying_kick_landing_ticks) :
+		kick_exit ?
+			static_cast<int>(current_player->flying_kick_exit_ticks) :
+			A1_PIN(static_cast<int>(current_player->slide_ticks_remaining),
+				0, slide_duration);
+	const int ticks_elapsed = flying_kick ?
+		static_cast<int>(current_player->flying_kick_ticks) :
+		slide_duration - ticks_remaining;
 
 	/*
 	 * Use position rather than transparency for the animation. The legs
@@ -1304,7 +1316,9 @@ static void render_slide_legs(view_data *view, RenderStep renderStep)
 	 * below the screen over the final eight ticks.
 	 */
 	float slide_in = A1_PIN(ticks_elapsed / 4.0f, 0.0f, 1.0f);
-	float slide_out = A1_PIN(ticks_remaining / 8.0f, 0.0f, 1.0f);
+	float slide_out = flying_kick ? 1.0f :
+		A1_PIN(ticks_remaining /
+			(kick_landing ? 12.0f : 8.0f), 0.0f, 1.0f);
 
 	slide_in =
 		slide_in * slide_in * (3.0f - 2.0f * slide_in);
@@ -1347,7 +1361,8 @@ static void render_slide_legs(view_data *view, RenderStep renderStep)
 	 * Looking upward leaves only the boots at the bottom edge. Looking
 	 * downward brings nearly the entire body into view.
 	 */
-	const float revealed_fraction =
+	const float revealed_fraction = (flying_kick || kick_exit) ?
+		0.32f + 0.68f * floor_reveal :
 		0.12f + 0.88f * floor_reveal;
 
 	// A small independent offset creates the entrance from below without
@@ -1363,7 +1378,18 @@ static void render_slide_legs(view_data *view, RenderStep renderStep)
 		sprite_width,
 		sprite_height);
 
-	// The sprite stays opaque; visibility controls only its vertical position.
+	// Match the first-person weapon's lighting source: the floor light of the
+	// polygon containing the camera. Keep alpha independent so the entrance
+	// and exit remain position-only animations.
+	const _fixed polygon_light = get_light_intensity(
+		get_polygon_data(view->origin_polygon_index)->floor_lightsource_index);
+	const float light_shade = A1_PIN(
+		static_cast<float>(polygon_light) / static_cast<float>(FIXED_ONE),
+		0.0f,
+		1.0f);
+	slide_legs.tint_color_r = light_shade;
+	slide_legs.tint_color_g = light_shade;
+	slide_legs.tint_color_b = light_shade;
 	slide_legs.tint_color_a = 1.0f;
 	slide_legs.rotation = 0.0f;
 	Shader::disable();
@@ -1392,6 +1418,26 @@ void RenderRasterize_Shader::render_viewer_sprite_layer(RenderStep renderStep)
 	weapon_display_information display_data;
 	shape_information_data *shape_information;
 	short count;
+
+	/*
+	 * Briefly tuck the weapon away while either mantle system pulls the
+	 * player over an edge. Calculate this once per rendered frame so paired
+	 * weapons receive exactly the same offset.
+	 */
+	static float mantle_weapon_lower = 0.0f;
+	const bool sprintathon_mantling =
+		current_player &&
+		input_preferences->sprintathon_enabled &&
+		((current_player->variables.flags&_DRY_MANTLING_BIT) ||
+		 (current_player->variables.flags&_WATER_MANTLING_BIT));
+	const float mantle_lower_target = sprintathon_mantling ?
+		static_cast<float>(view->screen_height) * 0.30f : 0.0f;
+	const float mantle_ease =
+		mantle_lower_target > mantle_weapon_lower ? 0.38f : 0.30f;
+	mantle_weapon_lower +=
+		(mantle_lower_target - mantle_weapon_lower) * mantle_ease;
+	const short mantle_lower_offset =
+		static_cast<short>(mantle_weapon_lower);
 
         rect.ModelPtr = nullptr;
         rect.Opacity = 1;
@@ -1497,7 +1543,11 @@ void RenderRasterize_Shader::render_viewer_sprite_layer(RenderStep renderStep)
 			 */
 			float slide_recovery_amount = 0.0f;
 
-			if (current_player->slide_ticks_remaining > 0 &&
+			if (current_player->flying_kick_landing_ticks > 0)
+			{
+				slide_recovery_amount = 1.0f;
+			}
+			else if (current_player->slide_ticks_remaining > 0 &&
 				current_player->slide_ticks_remaining <= 8)
 			{
 				slide_recovery_amount = 1.0f;
@@ -1505,7 +1555,7 @@ void RenderRasterize_Shader::render_viewer_sprite_layer(RenderStep renderStep)
 			else if (current_player->slide_recovery_ticks > 0)
 			{
 				slide_recovery_amount =
-					current_player->slide_recovery_ticks / 16.0f;
+					current_player->slide_recovery_ticks / 24.0f;
 			}
 
 			sprint_lower_target = std::max(
@@ -1522,6 +1572,9 @@ void RenderRasterize_Shader::render_viewer_sprite_layer(RenderStep renderStep)
 
 		rect.y0 += sprint_lower_offset;
 		rect.y1 += sprint_lower_offset;
+
+		rect.y0 += mantle_lower_offset;
+		rect.y1 += mantle_lower_offset;
 
 		// Quick side-to-side weapon swing while sprinting.
 		static float sprint_sway_amount = 0.0f;

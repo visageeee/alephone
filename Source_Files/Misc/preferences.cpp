@@ -1800,7 +1800,7 @@ static const char *action_name[NUM_KEYS] = {
 	"Glance Left", "Glance Right", "Look Up", "Look Down", "Jump / Swim",
 	"Previous Weapon", "Next Weapon", "Trigger", "2nd Trigger",
 	"Reload", "Run/Swim", "Sprint",
-	"Action", "Auto Map", "Crouch"
+	"Action", "Auto Map", "Crouch/Kick/Slide"
 };
 
 static key_binding_map default_key_bindings = {

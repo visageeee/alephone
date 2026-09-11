@@ -484,7 +484,8 @@ void move_projectiles(
 										projectile->owner_index,
 										projectile_object->facing,
 										&owner_object->location,
-										owner_object->polygon);
+										owner_object->polygon,
+										FIXED_ONE / 4);
 								}
 							}
               

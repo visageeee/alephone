@@ -317,11 +317,16 @@ bool bump_monster(short aggressor_index, short monster_index);
  * Damage every visible hostile monster inside the player's short,
  * forward-facing slide-impact cone.
  */
-void sprintathon_slide_attack(
+bool sprintathon_slide_attack(
 	short aggressor_index,
 	angle facing,
 	const world_point3d *origin,
-	short origin_polygon_index);
+	short origin_polygon_index,
+	_fixed damage_scale);
+
+// Start a fresh slide/kick hit set. Each target can be struck only once
+// until this is called again for the attacking player.
+void sprintathon_begin_sweep_attack(short aggressor_index);
 
 bool legal_polygon_height_change(short polygon_index, world_distance new_floor_height, world_distance new_ceiling_height, struct damage_definition *damage);
 void adjust_monster_for_polygon_height_change(short monster_index, short polygon_index, world_distance new_floor_height, world_distance new_ceiling_height);

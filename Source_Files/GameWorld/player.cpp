@@ -735,6 +735,22 @@ void update_players(ActionQueues* inActionQueuesToUse, bool inPredictive)
 		const bool crouch_key_down =
 			(action_flags & _microphone_button) != 0;
 
+		// Latch a fresh crouch press. physics_update() performs the reliable
+		// ground-contact test after movement state has been brought current.
+		if (input_preferences->sprintathon_enabled &&
+			input_preferences->sprintathon_slide &&
+			input_preferences->sprintathon_crouch &&
+			crouch_key_down &&
+			!player->crouch_key_was_down &&
+			!player->flying_kick_active &&
+			player->wall_kick_cooldown_ticks == 0 &&
+			(!player->flying_kick_recovery_pending ||
+			 player->wall_kick_rearm_pending) &&
+			player->flying_kick_landing_ticks == 0)
+		{
+			player->flying_kick_requested = true;
+		}
+
 		// Pressing crouch during an established sprint starts one short slide.
 		// Capture this before sprint_requested rejects the crouch input.
 		if (input_preferences->sprintathon_enabled &&
@@ -752,6 +768,7 @@ void update_players(ActionQueues* inActionQueuesToUse, bool inPredictive)
 				(TICKS_PER_SECOND * 3) / 4;
 			player->slide_recovery_ticks = 0;
 			player->slide_punch_pending = true;
+			sprintathon_begin_sweep_attack(player->monster_index);
 
 			if (player_index == current_player_index)
 			{
@@ -834,7 +851,8 @@ void update_players(ActionQueues* inActionQueuesToUse, bool inPredictive)
 					~(_left_trigger_state | _right_trigger_state);
 			}
 		}
-		else if (player->slide_recovery_ticks > 0)
+		else if (player->flying_kick_landing_ticks > 0 ||
+			player->slide_recovery_ticks > 0)
 		{
 			// Keep firing locked while the player regains their stance.
 			action_flags &=
@@ -935,12 +953,20 @@ void update_players(ActionQueues* inActionQueuesToUse, bool inPredictive)
 						MAX(player_settings.OxygenChange,
 							sprint_oxygen_recovery);
 				}
+
+				// A kick briefly delays all positive oxygen recovery. Environmental
+				// oxygen loss remains handled by the vacuum/submersion branch above.
+				if (player->flying_kick_oxygen_recharge_delay>0)
+					player_settings.OxygenChange= 0;
 			}
 
 			if (player_settings.OxygenChange < 0)
 				handle_player_in_vacuum(player_index, action_flags);
 			else if (player_settings.OxygenChange > 0)
 				ReplenishPlayerOxygen(player_index, action_flags);
+
+			if (player->flying_kick_oxygen_recharge_delay>0)
+				player->flying_kick_oxygen_recharge_delay--;
 
 			// if ((static_world->environment_flags&_environment_vacuum) || (player->variables.flags&_HEAD_BELOW_MEDIA_BIT)) handle_player_in_vacuum(player_index, action_flags);
 
