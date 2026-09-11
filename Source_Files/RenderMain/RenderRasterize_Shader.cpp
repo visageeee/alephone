@@ -1271,8 +1271,16 @@ static void render_slide_legs(view_data *view, RenderStep renderStep)
 	{
 		load_attempted = true;
 		FileSpecifier file("gfx/slidelegs.png");
-		if (file.Exists() ||
-			file.SetNameWithPath("Sprintathon/slidelegs.png"))
+
+		if (!file.Exists() &&
+			!file.SetNameWithPath("Sprintathon/slidelegs.png"))
+		{
+			file = FileSpecifier(
+				get_data_path(kPathDefaultData) +
+				"/Sprintathon/slidelegs.png");
+		}
+
+		if (file.Exists())
 		{
 			ImageDescriptor image;
 			if (image.LoadFromFile(file, ImageLoader_Colors, 0))

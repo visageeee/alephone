@@ -757,9 +757,16 @@ void update_players(ActionQueues* inActionQueuesToUse, bool inPredictive)
 			{
 				FileSpecifier slide_sound("snd/slide.ogg");
 
-				if (slide_sound.Exists() ||
-					slide_sound.SetNameWithPath(
+				if (!slide_sound.Exists() &&
+					!slide_sound.SetNameWithPath(
 						"Sprintathon/slide.ogg"))
+				{
+					slide_sound = FileSpecifier(
+						get_data_path(kPathDefaultData) +
+							"/Sprintathon/slide.ogg");
+				}
+
+				if (slide_sound.Exists())
 				{
 					SoundParameters parameters;
 					SoundManager::instance()->PlayExternalSound(
