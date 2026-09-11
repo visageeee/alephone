@@ -253,6 +253,14 @@ player_data* current_player = nullptr;
 short local_player_index = NONE;
 short current_player_index = NONE;
 
+// One-shot option set by the level chooser for the next newly created player.
+static bool spawn_with_all_weapons = false;
+
+void set_spawn_with_all_weapons(bool enabled)
+{
+	spawn_with_all_weapons = enabled;
+}
+
 // ZZZ: Let folks ask for a pointer to the main set of ActionQueues.
 static ActionQueues*   sRealActionQueues = NULL;
 ActionQueues* GetRealActionQueues() { return sRealActionQueues; }
@@ -462,6 +470,23 @@ short new_player(
 	
 	/* give the player his initial items */
 	give_player_initial_items(player_index);
+	if (spawn_with_all_weapons)
+	{
+		for (short item = 0; item < NUMBER_OF_DEFINED_ITEMS; ++item)
+		{
+			const short kind = get_item_kind(item);
+			if (kind == _weapon)
+				player->items[item] = 1;
+			else if (kind == _ammunition)
+				player->items[item] = NONE;
+		}
+
+		// Initial magazines may already have loaded the starting weapon. Reset
+		// weapon state so every granted weapon really begins empty.
+		initialize_player_weapons_for_new_game(player_index);
+		mark_player_inventory_as_dirty(player_index, NONE);
+		spawn_with_all_weapons = false;
+	}
 	try_and_strip_player_items(player_index);
 	
 	return player_index;

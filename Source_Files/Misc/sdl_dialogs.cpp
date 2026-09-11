@@ -71,6 +71,8 @@
 dialog *top_dialog = NULL;
 
 static SDL_Surface *dialog_surface = NULL;
+static int dialog_render_scale = 1;
+static std::map<int, font_info *> scaled_dialog_fonts;
 
 static SDL_Surface *default_image = NULL;
 
@@ -106,6 +108,32 @@ static std::map<int, theme_widget> dialog_theme;
 static bool load_theme(FileSpecifier &theme);
 static void unload_theme(void);
 static void set_theme_defaults(void);
+
+static void clear_scaled_dialog_fonts()
+{
+	for (auto &entry : scaled_dialog_fonts)
+		unload_font(entry.second);
+	scaled_dialog_fonts.clear();
+}
+
+void set_dialog_render_scale(int scale)
+{
+	scale = MainScreenIsOpenGL() ? MAX(1, scale) : 1;
+	if (scale == dialog_render_scale)
+		return;
+
+	clear_scaled_dialog_fonts();
+	dialog_render_scale = scale;
+	if (dialog_surface)
+		SDL_FreeSurface(dialog_surface);
+	dialog_surface = SDL_CreateRGBSurface(SDL_SWSURFACE,
+		640 * dialog_render_scale, 480 * dialog_render_scale,
+		16, 0x7c00, 0x03e0, 0x001f, 0);
+	assert(dialog_surface);
+}
+
+int get_dialog_render_scale() { return dialog_render_scale; }
+int scale_dialog_value(int value) { return value * dialog_render_scale; }
 
 /*
  *  Initialize dialog manager
@@ -638,6 +666,13 @@ bool load_dialog_theme(bool force_reload)
 	return false;
 }
 
+bool load_default_dialog_theme()
+{
+	FileSpecifier default_theme;
+	get_default_theme_spec(default_theme);
+	return load_theme(default_theme);
+}
+
 bool load_theme(FileSpecifier &theme)
 {
 	// Unload previous theme
@@ -736,26 +771,26 @@ static void set_theme_defaults(void)
 
 	dialog_theme[SPACER_WIDGET].spaces[0] = 8;
 
-	dialog_theme[LABEL_WIDGET].states[DEFAULT_STATE].colors[FOREGROUND_COLOR] = make_color(0x0, 0xff, 0x0);
-	dialog_theme[LABEL_WIDGET].states[DISABLED_STATE].colors[FOREGROUND_COLOR] = make_color(0x0, 0x9b, 0x0);
-	dialog_theme[LABEL_WIDGET].states[ACTIVE_STATE].colors[FOREGROUND_COLOR] = make_color(0xff, 0xe7, 0x0);
+	dialog_theme[LABEL_WIDGET].states[DEFAULT_STATE].colors[FOREGROUND_COLOR] = make_color(0xff, 0xbd, 0x80);
+	dialog_theme[LABEL_WIDGET].states[DISABLED_STATE].colors[FOREGROUND_COLOR] = make_color(0x9b, 0x4f, 0x20);
+	dialog_theme[LABEL_WIDGET].states[ACTIVE_STATE].colors[FOREGROUND_COLOR] = make_color(0xff, 0xff, 0xff);
 
-	dialog_theme[ITEM_WIDGET].states[DEFAULT_STATE].colors[FOREGROUND_COLOR] = make_color(0x0, 0xff, 0x0);
-	dialog_theme[ITEM_WIDGET].states[ACTIVE_STATE].colors[FOREGROUND_COLOR] = make_color(0xff, 0xe7, 0x0);
-	dialog_theme[ITEM_WIDGET].states[DISABLED_STATE].colors[FOREGROUND_COLOR] = make_color(0x0, 0x9b, 0x0);
+	dialog_theme[ITEM_WIDGET].states[DEFAULT_STATE].colors[FOREGROUND_COLOR] = make_color(0xff, 0xbd, 0x80);
+	dialog_theme[ITEM_WIDGET].states[ACTIVE_STATE].colors[FOREGROUND_COLOR] = make_color(0xff, 0xff, 0xff);
+	dialog_theme[ITEM_WIDGET].states[DISABLED_STATE].colors[FOREGROUND_COLOR] = make_color(0x9b, 0x4f, 0x20);
 	dialog_theme[ITEM_WIDGET].spaces[0] = 16;
 
-	dialog_theme[TEXT_ENTRY_WIDGET].states[DEFAULT_STATE].colors[FOREGROUND_COLOR] = make_color(0x0, 0xff, 0x0);
-	dialog_theme[TEXT_ENTRY_WIDGET].states[ACTIVE_STATE].colors[FOREGROUND_COLOR] = make_color(0xff, 0xe7, 0x0);
-	dialog_theme[TEXT_ENTRY_WIDGET].states[CURSOR_STATE].colors[FOREGROUND_COLOR] = make_color(0xff, 0xe7, 0x0);
-	dialog_theme[TEXT_ENTRY_WIDGET].states[DISABLED_STATE].colors[FOREGROUND_COLOR] = make_color(0x0, 0x9b, 0x0);
+	dialog_theme[TEXT_ENTRY_WIDGET].states[DEFAULT_STATE].colors[FOREGROUND_COLOR] = make_color(0xff, 0xbd, 0x80);
+	dialog_theme[TEXT_ENTRY_WIDGET].states[ACTIVE_STATE].colors[FOREGROUND_COLOR] = make_color(0xff, 0xff, 0xff);
+	dialog_theme[TEXT_ENTRY_WIDGET].states[CURSOR_STATE].colors[FOREGROUND_COLOR] = make_color(0xff, 0xff, 0xff);
+	dialog_theme[TEXT_ENTRY_WIDGET].states[DISABLED_STATE].colors[FOREGROUND_COLOR] = make_color(0x9b, 0x4f, 0x20);
 
 	dialog_theme[BUTTON_WIDGET].spaces[BUTTON_T_SPACE] = 4;
 	dialog_theme[BUTTON_WIDGET].spaces[BUTTON_L_SPACE] = 4;
 	dialog_theme[BUTTON_WIDGET].spaces[BUTTON_R_SPACE] = 4;
 	dialog_theme[BUTTON_WIDGET].spaces[BUTTON_HEIGHT] = 24;
 	dialog_theme[BUTTON_WIDGET].states[DEFAULT_STATE].colors[BACKGROUND_COLOR] = make_color(0x0, 0x0, 0x0);
-	dialog_theme[BUTTON_WIDGET].states[ACTIVE_STATE].colors[FOREGROUND_COLOR] = make_color(0xff, 0xe7, 0x0);
+	dialog_theme[BUTTON_WIDGET].states[ACTIVE_STATE].colors[FOREGROUND_COLOR] = make_color(0xff, 0xff, 0xff);
 	dialog_theme[BUTTON_WIDGET].states[DISABLED_STATE].colors[FOREGROUND_COLOR] = make_color(0x7f, 0x7f, 0x7f);
 
 	dialog_theme[BUTTON_WIDGET].states[PRESSED_STATE].colors[FOREGROUND_COLOR] = make_color(0x0, 0x0, 0x0);
@@ -766,11 +801,11 @@ static void set_theme_defaults(void)
 	dialog_theme[BUTTON_WIDGET].font_set = true;
 
 	dialog_theme[SLIDER_WIDGET].states[DEFAULT_STATE].colors[FOREGROUND_COLOR] = make_color(0x0, 0x0, 0x0);
-	dialog_theme[SLIDER_THUMB].states[DEFAULT_STATE].colors[FRAME_COLOR] = make_color(0x0, 0xff, 0x0);
+	dialog_theme[SLIDER_THUMB].states[DEFAULT_STATE].colors[FRAME_COLOR] = make_color(0xc7, 0x67, 0x2c);
 	dialog_theme[SLIDER_THUMB].states[DEFAULT_STATE].colors[FOREGROUND_COLOR] = make_color(0x0, 0x0, 0x0);
 
 	dialog_theme[LIST_THUMB].states[DEFAULT_STATE].colors[FOREGROUND_COLOR] = make_color(0x0, 0x0, 0x0);
-	dialog_theme[LIST_THUMB].states[DEFAULT_STATE].colors[FRAME_COLOR] = make_color(0x0, 0xff, 0x0);
+	dialog_theme[LIST_THUMB].states[DEFAULT_STATE].colors[FRAME_COLOR] = make_color(0xc7, 0x67, 0x2c);
 	dialog_theme[LIST_WIDGET].spaces[T_SPACE] = 2;
 	dialog_theme[LIST_WIDGET].spaces[L_SPACE] = 2;
 	dialog_theme[LIST_WIDGET].spaces[R_SPACE] = 14;
@@ -779,7 +814,7 @@ static void set_theme_defaults(void)
 	dialog_theme[LIST_WIDGET].spaces[TROUGH_WIDTH] = 12;
 
 	dialog_theme[TINY_BUTTON].states[DEFAULT_STATE].colors[BACKGROUND_COLOR] = make_color(0x0, 0x0, 0x0);
-	dialog_theme[TINY_BUTTON].states[ACTIVE_STATE].colors[FOREGROUND_COLOR] = make_color(0xff, 0xe7, 0x0);
+	dialog_theme[TINY_BUTTON].states[ACTIVE_STATE].colors[FOREGROUND_COLOR] = make_color(0xff, 0xff, 0xff);
 	dialog_theme[TINY_BUTTON].states[DISABLED_STATE].colors[FOREGROUND_COLOR] = make_color(0x7f, 0x7f, 0x7f);
 	dialog_theme[TINY_BUTTON].spaces[BUTTON_T_SPACE] = 2;
 	dialog_theme[TINY_BUTTON].spaces[BUTTON_L_SPACE] = 2;
@@ -792,8 +827,8 @@ static void set_theme_defaults(void)
 	dialog_theme[HYPERLINK_WIDGET].font_spec.style = 4;
 	dialog_theme[HYPERLINK_WIDGET].font_set = true;
 	dialog_theme[HYPERLINK_WIDGET].states[DEFAULT_STATE].colors[FOREGROUND_COLOR] = make_color(0x7f, 0x7f, 0xff);
-	dialog_theme[HYPERLINK_WIDGET].states[ACTIVE_STATE].colors[FOREGROUND_COLOR] = make_color(0xff, 0xe7, 0x0);
-	dialog_theme[HYPERLINK_WIDGET].states[DISABLED_STATE].colors[FOREGROUND_COLOR] = make_color(0x0, 0x9b, 0x0);
+	dialog_theme[HYPERLINK_WIDGET].states[ACTIVE_STATE].colors[FOREGROUND_COLOR] = make_color(0xff, 0xff, 0xff);
+	dialog_theme[HYPERLINK_WIDGET].states[DISABLED_STATE].colors[FOREGROUND_COLOR] = make_color(0x9b, 0x4f, 0x20);
 	dialog_theme[HYPERLINK_WIDGET].states[PRESSED_STATE].colors[FOREGROUND_COLOR] = make_color(0xff, 0xff, 0xff);
 
 	dialog_theme[CHECKBOX].font_spec = dialog_theme[DEFAULT_WIDGET].font_spec;
@@ -812,7 +847,7 @@ static void set_theme_defaults(void)
 	dialog_theme[TAB_WIDGET].font_spec.size = 14;
 	dialog_theme[TAB_WIDGET].font_set = true;
 	dialog_theme[TAB_WIDGET].states[DEFAULT_STATE].colors[BACKGROUND_COLOR] = make_color(0x0, 0x0, 0x0);
-	dialog_theme[TAB_WIDGET].states[ACTIVE_STATE].colors[FOREGROUND_COLOR] = make_color(0xff, 0xe7, 0x0);
+	dialog_theme[TAB_WIDGET].states[ACTIVE_STATE].colors[FOREGROUND_COLOR] = make_color(0xff, 0xff, 0xff);
 	dialog_theme[TAB_WIDGET].states[PRESSED_STATE].colors[FOREGROUND_COLOR] = make_color(0x0, 0x0, 0x0);
 	dialog_theme[TAB_WIDGET].states[PRESSED_STATE].colors[BACKGROUND_COLOR] = make_color(0xff, 0xff, 0xff);
 
@@ -842,6 +877,7 @@ static void set_theme_defaults(void)
 
 static void unload_theme(void)
 {
+	clear_scaled_dialog_fonts();
 	// Unload fonts
 	for (std::map<int, theme_widget>::iterator i = dialog_theme.begin(); i != dialog_theme.end(); ++i)
 	{
@@ -892,17 +928,37 @@ uint32 get_dialog_player_color(size_t colorIndex) {
 font_info *get_theme_font(int widget_type, uint16 &style)
 {
 	std::map<int, theme_widget>::iterator i = dialog_theme.find(widget_type);
+	int font_key = widget_type;
 	if (i != dialog_theme.end() && i->second.font)
 	{
 		style = i->second.font_spec.style;
-		return i->second.font;
 	}
 	else 
 	{
 		i = dialog_theme.find(DEFAULT_WIDGET);
+		font_key = DEFAULT_WIDGET;
 		style = i->second.font_spec.style;
-		return i->second.font;
 	}
+
+	if (dialog_render_scale == 1)
+		return i->second.font;
+	auto cached = scaled_dialog_fonts.find(font_key);
+	if (cached != scaled_dialog_fonts.end())
+		return cached->second;
+
+	TextSpec spec = i->second.font_spec;
+	spec.size *= dialog_render_scale;
+	spec.adjust_height *= dialog_render_scale;
+	font_info *scaled = load_font(spec);
+	if (!scaled)
+	{
+		TextSpec fallback = {-1, spec.style, spec.size,
+			spec.adjust_height, "mono"};
+		scaled = load_font(fallback);
+	}
+	assert(scaled);
+	scaled_dialog_fonts[font_key] = scaled;
+	return scaled;
 }
 
 uint32 get_theme_color(int widget_type, int state, int which)
@@ -1041,7 +1097,7 @@ int get_theme_space(int widget_type, int which)
 		std::map<int, int>::iterator j = i->second.spaces.find(which);
 		if (j != i->second.spaces.end())
 		{
-			return j->second;
+			return scale_dialog_value(j->second);
 		}
 	}
 
@@ -1129,6 +1185,8 @@ int table_placer::min_height()
 	{
 		height += row_height(row);
 	}
+	if (m_table.size() > 1)
+		height += (m_table.size() - 1) * m_row_space;
 
 	return height;
 }
@@ -1338,6 +1396,8 @@ void table_placer::place(const SDL_Rect &r, placement_flags flags)
 		}
 
 		y_offset += row_height(row);
+		if (row + 1 < m_table.size())
+			y_offset += m_row_space;
 	}
 }
 		
@@ -1402,7 +1462,8 @@ int vertical_placer::min_width()
 
 void vertical_placer::place(const SDL_Rect &r, placement_flags flags)
 {
-	int y_offset = 0;
+	int y_offset = m_center_vertically ?
+		std::max(0, (r.h - min_height()) / 2) : 0;
 	int w = (flags & kFill) ? r.w : min_width();
 	for (int i = 0; i < m_widgets.size(); i++)
 	{
@@ -1765,8 +1826,8 @@ void dialog::layout()
 	int surface_h = MainScreenLogicalHeight();
 	if (MainScreenIsOpenGL())
 	{
-		surface_w = 640;
-		surface_h = 480;
+		surface_w = 640 * dialog_render_scale;
+		surface_h = 480 * dialog_render_scale;
 	}
 	rect.x = (surface_w - rect.w) / 2;
 	rect.y = (surface_h - rect.h) / 2;
@@ -1790,8 +1851,12 @@ void dialog::update(SDL_Rect r) const
 		clear_screen(false);
 		OGL_Blitter blitter;
 		SDL_Rect src = { 0, 0, rect.w, rect.h };
+		SDL_Rect dst = { rect.x / dialog_render_scale,
+			rect.y / dialog_render_scale,
+			MAX(1, rect.w / dialog_render_scale),
+			MAX(1, rect.h / dialog_render_scale) };
 		blitter.Load(*dialog_surface, src);
-		blitter.Draw(rect);
+		blitter.Draw(dst);
 
 		MainScreenSwap();
 	} else 
@@ -2100,17 +2165,33 @@ void dialog::event(SDL_Event &e)
   
   if (!handled) {
 	  // First pass event to active widget (which may modify it)
-	  if (active_widget)
+	  if (active_widget && e.type != SDL_MOUSEWHEEL)
 		  active_widget->event(e);
 
 	  // handle mouse events
-	  if (e.type == SDL_MOUSEMOTION)
+	  if (e.type == SDL_MOUSEWHEEL)
+	  {
+		  int x, y;
+		  SDL_GetMouseState(&x, &y);
+#ifdef HAVE_OPENGL
+		  if (OGL_IsActive())
+			  OGL_Blitter::WindowToScreen(x, y);
+#endif
+		  x *= dialog_render_scale;
+		  y *= dialog_render_scale;
+		  int num = find_widget(x, y);
+		  if (num >= 0)
+			  widgets[num]->event(e);
+	  }
+	  else if (e.type == SDL_MOUSEMOTION)
 	  {
 		  int x = e.motion.x, y = e.motion.y;
 #ifdef HAVE_OPENGL
 		  if (OGL_IsActive())
 			  OGL_Blitter::WindowToScreen(x, y);
 #endif
+		  x *= dialog_render_scale;
+		  y *= dialog_render_scale;
 		  widget *target = 0;
 		  if (mouse_widget)
 			  target = mouse_widget;
@@ -2137,6 +2218,8 @@ void dialog::event(SDL_Event &e)
 		  if (OGL_IsActive())
 			  OGL_Blitter::WindowToScreen(x, y);
 #endif
+		  x *= dialog_render_scale;
+		  y *= dialog_render_scale;
 		  int num = find_widget(x, y);
 		  if (num >= 0)
 		  {
@@ -2159,6 +2242,8 @@ void dialog::event(SDL_Event &e)
 				  if (OGL_IsActive())
 					  OGL_Blitter::WindowToScreen(x, y);
 #endif
+				  x *= dialog_render_scale;
+				  y *= dialog_render_scale;
 				  mouse_widget->mouse_up(x - rect.x - mouse_widget->rect.x, y - rect.y - mouse_widget->rect.y);
 			  }
 			  
@@ -2373,7 +2458,11 @@ int dialog::finish(bool play_sound)
         for (int i = 0; i < 2; i++)  // execute for both buffers
 #endif
         {
-			OGL_RenderRect(rect);
+			SDL_Rect display_rect = { rect.x / dialog_render_scale,
+				rect.y / dialog_render_scale,
+				MAX(1, rect.w / dialog_render_scale),
+				MAX(1, rect.h / dialog_render_scale) };
+			OGL_RenderRect(display_rect);
             MainScreenSwap();
         }
 	} else

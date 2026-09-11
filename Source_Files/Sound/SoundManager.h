@@ -69,7 +69,7 @@ public:
 
 	std::shared_ptr<SoundPlayer> PlaySound(LoadedResource& rsrc, const SoundParameters& parameters);
 	std::shared_ptr<SoundPlayer> PlayExternalSound(FileSpecifier& file, const SoundParameters& parameters);
-	std::shared_ptr<SoundPlayer> PlaySound(short sound_index, world_location3d *source, short identifier, _fixed pitch = _normal_frequency, bool soft_rewind = false);
+	std::shared_ptr<SoundPlayer> PlaySound(short sound_index, world_location3d *source, short identifier, _fixed pitch = _normal_frequency, bool soft_rewind = false, float gain = 1.f);
 	std::shared_ptr<SoundPlayer> DirectPlaySound(short sound_index, angle direction, short volume, _fixed pitch);
 
 	void StopSound(short identifier, short sound_index);
@@ -107,6 +107,7 @@ public:
 		uint16 samples; // size of buffer
 
 		float music_db; // music volume in dB
+		int16 pickup_volume_percent;
 
 		float video_export_volume_db;
 

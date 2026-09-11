@@ -175,10 +175,29 @@ static void graphics_dialog(void *arg);
 static void sound_dialog(void *arg);
 static void controls_dialog(void *arg);
 static void sprintathon_dialog(void *arg);
+static void software_rendering_options_dialog(void *arg);
 static void environment_dialog(void *arg);
 static void plugins_dialog(void *arg);
 static void keyboard_dialog(void *arg);
+static void crosshair_dialog(void *arg);
 //static void texture_options_dialog(void *arg);
+
+// Defined in XML_MakeRoot.cpp; embedded plugin settings use it before the
+// legacy graphics/plugin dialog section that previously declared it.
+extern void ResetAllMMLValues();
+extern const char* GetSDLKeyName(SDL_Scancode);
+
+struct embedded_controls_state
+{
+	key_binding_map keys;
+	key_binding_map shell_keys;
+	key_binding_map hotkeys;
+	bool always_run;
+};
+
+static placeable *build_embedded_controls(
+	dialog& d, embedded_controls_state& state);
+static void save_embedded_controls(const embedded_controls_state& state);
 
 /*
  *  Get user name
@@ -217,6 +236,138 @@ static bool ethernet_active(void)
 	return true;
 }
 
+class w_preferences_sidebar : public w_list<string>
+{
+public:
+	w_preferences_sidebar(const vector<string>& labels, dialog *parent,
+		tab_placer *pages, const vector<int>& page_indices) :
+		w_list<string>(labels, scale_dialog_value(145), labels.size(), 0),
+		m_parent(parent), m_pages(pages), m_page_indices(page_indices),
+		m_chosen(0)
+	{
+		set_scrollbar_visible(false);
+		font = get_theme_font(BUTTON_WIDGET, style);
+		rect.h = item_height() * static_cast<uint16>(shown_items) +
+			get_theme_space(LIST_WIDGET, T_SPACE) +
+			get_theme_space(LIST_WIDGET, B_SPACE);
+		saved_min_height = rect.h;
+	}
+
+	void draw(SDL_Surface *s) const override
+	{
+		const int content_height = shown_items * item_height();
+		const int padding = scale_dialog_value(12);
+		SDL_Rect background = {
+			rect.x,
+			static_cast<Sint16>(rect.y + (rect.h - content_height) / 2 - padding),
+			rect.w,
+			static_cast<Uint16>(content_height + padding * 2)
+		};
+		SDL_FillRect(s, &background, SDL_MapRGB(s->format, 0, 0, 0));
+		draw_items(s);
+	}
+
+	void event(SDL_Event& e) override
+	{
+		const size_t previous = selection;
+		w_list_base::event(e);
+		if (selection != previous)
+			item_selected();
+	}
+
+	void mouse_move(int x, int y) override
+	{
+		const int first_y = (rect.h - shown_items * item_height()) / 2;
+		if (x < 0 || x >= rect.w || y < first_y ||
+			y >= first_y + static_cast<int>(shown_items * item_height()))
+			return;
+		set_selection((y - first_y) / item_height());
+	}
+
+	void click(int x, int y) override
+	{
+		m_parent->activate_widget(this);
+		w_list_base::click(x, y);
+	}
+
+	void item_selected(void) override
+	{
+		m_chosen = selection;
+		m_pages->choose_tab(m_page_indices[selection]);
+		m_parent->draw();
+	}
+
+	void draw_item(vector<string>::const_iterator i, SDL_Surface *s,
+		int16 x, int16 y, uint16 width, bool /*selected*/) const override
+	{
+		y += font->get_ascent();
+		set_drawing_clip_rectangle(0, x, static_cast<short>(s->h), x + width);
+		const bool current =
+			static_cast<size_t>(i - items.begin()) == m_chosen;
+		draw_text(s, i->c_str(), x, y,
+			current ? SDL_MapRGB(s->format, 255, 255, 255) :
+				SDL_MapRGB(s->format, 155, 79, 32),
+			font, current ? style | styleUnderline : style);
+		set_drawing_clip_rectangle(SHRT_MIN, SHRT_MIN, SHRT_MAX, SHRT_MAX);
+	}
+
+	uint16 item_height() const override
+	{
+		return font->get_line_height() + scale_dialog_value(10);
+	}
+
+	void draw_items(SDL_Surface *s) const override
+	{
+		const int16 x = rect.x + get_theme_space(LIST_WIDGET, L_SPACE);
+		int16 y = rect.y + (rect.h - shown_items * item_height()) / 2;
+		const uint16 width = rect.w -
+			get_theme_space(LIST_WIDGET, L_SPACE) -
+			get_theme_space(LIST_WIDGET, R_SPACE);
+		for (auto i = items.begin(); i != items.end(); ++i, y += item_height())
+			draw_item(i, s, x, y, width,
+				static_cast<size_t>(i - items.begin()) == selection && active);
+	}
+
+private:
+	dialog *m_parent;
+	tab_placer *m_pages;
+	vector<int> m_page_indices;
+	size_t m_chosen;
+};
+
+class w_sprintathon_rate_slider : public w_slider
+{
+public:
+	explicit w_sprintathon_rate_slider(int percent) :
+		w_slider(391, percent - 10)
+	{
+		init_formatted_value();
+	}
+
+	std::string formatted_value(void) override
+	{
+		return std::to_string(get_selection() + 10) + "%";
+	}
+};
+
+class w_embedded_fov_slider : public w_slider
+{
+public:
+	explicit w_embedded_fov_slider(int degrees) :
+		w_slider(101, degrees - 30)
+	{
+		init_formatted_value();
+	}
+
+	std::string formatted_value(void) override
+	{
+		return std::to_string(get_selection() + 30);
+	}
+};
+
+extern float View_FOV_Normal();
+extern bool shapes_file_is_m1();
+
 
 /*
  *  Main preferences dialog
@@ -226,52 +377,852 @@ void handle_preferences(void)
 {
 	// Save the existing preferences, in case we have to reload them
 	write_preferences();
+	struct preferences_theme_guard
+	{
+		preferences_theme_guard() { load_default_dialog_theme(); }
+		~preferences_theme_guard() { load_dialog_theme(true); }
+	} theme_guard;
+	struct preferences_resolution_guard
+	{
+		preferences_resolution_guard() { set_dialog_render_scale(2); }
+		~preferences_resolution_guard() { set_dialog_render_scale(1); }
+	} resolution_guard;
 
-	// Create top-level dialog
 	dialog d;
-	vertical_placer *placer = new vertical_placer;
-	w_title *w_header = new w_title("PREFERENCES");
-	d.add(w_header);
-	w_button *w_player = new w_button("PLAYER", player_dialog, &d);
-	d.add(w_player);
-	w_button *w_online = new w_button("INTERNET", online_dialog, &d);
-	d.add(w_online);
-	w_button *w_graphics = new w_button("GRAPHICS", graphics_dialog, &d);
-	d.add(w_graphics);
-	w_button *w_sound = new w_button("SOUND", sound_dialog, &d);
-	d.add(w_sound);
-	w_button *w_controls = new w_button("CONTROLS", controls_dialog, &d);
-	d.add(w_controls);
-	w_button *w_sprintathon = new w_button("SPRINTATHON", sprintathon_dialog, &d);
-	d.add(w_sprintathon);
-	w_button *w_environment = new w_button("ENVIRONMENT", environment_dialog, &d);
-	d.add(w_environment);
-	w_button *w_plugins = new w_button("PLUGINS", plugins_dialog, &d);
-	d.add(w_plugins);
+	vertical_placer *root = new vertical_placer(get_theme_space(ITEM_WIDGET));
 
-	w_button *w_return = new w_button("RETURN", dialog_cancel, &d);
-	d.add(w_return);
+	tab_placer *pages = new tab_placer;
+	const vector<string> categories = {
+		"Sprintathon", "Controls", "Graphics", "HUD", "Sound", "Environment",
+		"Player Look", "Difficulty", "Online Play", "Plugins"
+	};
+	// Page construction remains in legacy source order; navigation presents
+	// the more useful Sprintathon-first order without coupling it to storage.
+	const vector<int> category_pages = {8, 9, 2, 3, 4, 6, 0, 1, 5, 7};
+	w_preferences_sidebar *sidebar =
+		new w_preferences_sidebar(categories, &d, pages, category_pages);
+	d.add(sidebar);
 
-	placer->add(w_header);
-	placer->add(new w_spacer, true);
-	placer->add(w_player);
-	placer->add(w_online);
-	placer->add(w_graphics);
-	placer->add(w_sound);
-	placer->add(w_controls);
-	placer->add(w_sprintathon);
-	placer->add(w_environment);
-	placer->add(w_plugins);
-	placer->add(new w_spacer, true);
-	placer->add(w_return);
+	/* Embedded Player Appearance page. */
+	vertical_placer *player_page =
+		new vertical_placer(get_theme_space(ITEM_WIDGET));
+	player_page->center_vertically();
+	player_page->min_width(scale_dialog_value(430));
 
-	d.set_widget_placer(placer);
+	vertical_placer *appearance_page = new vertical_placer;
+	appearance_page->center_vertically();
+	table_placer *appearance =
+		new table_placer(2, get_theme_space(ITEM_WIDGET), false);
+	appearance->row_space(scale_dialog_value(4));
+	appearance->col_flags(0, placeable::kAlignRight);
+	w_text_entry *player_name_w = new w_text_entry(
+		PREFERENCES_NAME_LENGTH, player_preferences->name);
+	player_name_w->enable_mac_roman_input();
+	appearance->dual_add(player_name_w->label("Name"), d);
+	appearance->dual_add(player_name_w, d);
+	w_player_color *player_color_w =
+		new w_player_color(player_preferences->color);
+	appearance->dual_add(player_color_w->label("Color"), d);
+	appearance->dual_add(player_color_w, d);
+	w_player_color *player_team_w =
+		new w_player_color(player_preferences->team);
+	appearance->dual_add(player_team_w->label("Team"), d);
+	appearance->dual_add(player_team_w, d);
+	w_toggle *player_crosshair_w =
+		new w_toggle(player_preferences->crosshairs_active);
+	appearance->dual_add(player_crosshair_w->label("Show Crosshairs"), d);
+	appearance->dual_add(player_crosshair_w, d);
+	appearance_page->add(appearance, true);
+	appearance_page->dual_add(new w_button(
+		"CROSSHAIR SETTINGS", crosshair_dialog, &d), d);
+	player_page->add(appearance_page, true);
+	pages->add(player_page, true);
+
+	/* Difficulty belongs at the top level rather than under appearance. */
+	vertical_placer *difficulty_page =
+		new vertical_placer(get_theme_space(ITEM_WIDGET));
+	difficulty_page->center_vertically();
+	difficulty_page->min_width(scale_dialog_value(430));
+	table_placer *gameplay =
+		new table_placer(2, get_theme_space(ITEM_WIDGET), false);
+	gameplay->row_space(scale_dialog_value(4));
+	gameplay->col_flags(0, placeable::kAlignRight);
+	w_select *player_level_w = new w_select(
+		player_preferences->difficulty_level, nullptr);
+	player_level_w->set_labels_stringset(kDifficultyLevelsStringSetID);
+	gameplay->dual_add(player_level_w->label("Difficulty"), d);
+	gameplay->dual_add(player_level_w, d);
+	w_select *player_solo_profile_w = nullptr;
+	static const char* embedded_solo_profile_labels[] = {
+		"Aleph One Fixes", "Classic Marathon 2",
+		"Classic Marathon Infinity", nullptr
+	};
+	if (Scenario::instance()->AllowsClassicGameplay())
+	{
+		auto profile = player_preferences->solo_profile;
+		if (profile >= 1) --profile;
+		player_solo_profile_w = new w_select(
+			profile, embedded_solo_profile_labels);
+		gameplay->dual_add(player_solo_profile_w->label("Solo Gameplay"), d);
+		gameplay->dual_add(player_solo_profile_w, d);
+	}
+	difficulty_page->add(gameplay, true);
+	pages->add(difficulty_page, true);
+
+	/* Begin embedding Graphics with its most frequently used display options. */
+	vertical_placer *graphics_page =
+		new vertical_placer(get_theme_space(ITEM_WIDGET));
+	graphics_page->center_vertically();
+	graphics_page->min_width(scale_dialog_value(430));
+	table_placer *graphics_display =
+		new table_placer(2, get_theme_space(ITEM_WIDGET), false);
+	graphics_display->row_space(scale_dialog_value(4));
+	graphics_display->col_flags(0, placeable::kAlignRight);
+	static const char *embedded_renderer_labels[] = {
+		"Software", "OpenGL", nullptr
+	};
+	static const char *embedded_gamma_labels[] = {
+		"Darkest", "Darker", "Dark", "Normal", "Light", "Really Light",
+		"Even Lighter", "Lightest", nullptr
+	};
+	static const char *embedded_fps_labels[] = {
+		"30", "60 (interpolated)", "120 (interpolated)",
+		"Unlimited (interpolated)", nullptr
+	};
+	w_select *graphics_renderer_w = new w_select(
+		graphics_preferences->screen_mode.acceleration,
+		embedded_renderer_labels);
+#ifndef HAVE_OPENGL
+	graphics_renderer_w->set_selection(_no_acceleration);
+	graphics_renderer_w->set_enabled(false);
+#endif
+	graphics_display->dual_add(graphics_renderer_w->label("Rendering System"), d);
+	graphics_display->dual_add(graphics_renderer_w, d);
+	w_toggle *graphics_windowed_w = new w_toggle(
+		!graphics_preferences->screen_mode.fullscreen);
+	graphics_display->dual_add(graphics_windowed_w->label("Windowed Mode"), d);
+	graphics_display->dual_add(graphics_windowed_w, d);
+	w_select *graphics_gamma_w = new w_select(
+		graphics_preferences->screen_mode.gamma_level, embedded_gamma_labels);
+	graphics_display->dual_add(graphics_gamma_w->label("Brightness"), d);
+	graphics_display->dual_add(graphics_gamma_w, d);
+	int embedded_fps_index = 3;
+	const int16_t embedded_fps_values[] = {30, 60, 120, 0};
+	for (int i = 0; i < 4; ++i)
+		if (embedded_fps_values[i] == graphics_preferences->fps_target)
+			embedded_fps_index = i;
+	w_select *graphics_fps_w = new w_select(
+		embedded_fps_index, embedded_fps_labels);
+	graphics_display->dual_add(graphics_fps_w->label("Framerate Target"), d);
+	graphics_display->dual_add(graphics_fps_w, d);
+
+	table_placer *graphics_view =
+		new table_placer(2, get_theme_space(ITEM_WIDGET), false);
+	graphics_view->row_space(scale_dialog_value(4));
+	graphics_view->col_flags(0, placeable::kAlignRight);
+	w_toggle *graphics_limit_vertical_w = new w_toggle(
+		!graphics_preferences->screen_mode.fix_h_not_v);
+	graphics_view->dual_add(
+		graphics_limit_vertical_w->label("Limit Vertical View"), d);
+	graphics_view->dual_add(graphics_limit_vertical_w, d);
+	w_toggle *graphics_override_fov_w = new w_toggle(
+		graphics_preferences->screen_mode.fov != 0);
+	const int initial_fov = graphics_preferences->screen_mode.fov == 0 ?
+		static_cast<int>(View_FOV_Normal()) :
+		graphics_preferences->screen_mode.fov;
+	w_embedded_fov_slider *graphics_fov_w =
+		new w_embedded_fov_slider(initial_fov);
+	graphics_fov_w->set_enabled(graphics_override_fov_w->get_selection());
+	graphics_override_fov_w->set_selection_changed_callback(
+		[graphics_override_fov_w, graphics_fov_w](w_select*) {
+			graphics_fov_w->set_enabled(
+				graphics_override_fov_w->get_selection());
+		});
+	graphics_view->dual_add(
+		graphics_override_fov_w->label("Override FOV*"), d);
+	horizontal_placer *graphics_fov_row =
+		new horizontal_placer(get_theme_space(ITEM_WIDGET));
+	graphics_fov_row->dual_add(graphics_override_fov_w, d);
+	graphics_fov_row->dual_add(graphics_fov_w, d);
+	graphics_view->add(graphics_fov_row);
+	graphics_view->dual_add_row(new w_static_text(
+		"*may interfere with third-party scenario effects", LABEL_WIDGET), d);
+	static const char *embedded_bobbing_labels[] = {
+		"None", "Camera and Weapon", "Weapon Only", nullptr
+	};
+	w_select *graphics_bobbing_w = new w_select(
+		static_cast<int>(graphics_preferences->screen_mode.bobbing_type),
+		embedded_bobbing_labels);
+	graphics_view->dual_add(graphics_bobbing_w->label("View Bobbing"), d);
+	graphics_view->dual_add(graphics_bobbing_w, d);
+	graphics_page->add(graphics_display, true);
+	graphics_page->add(new w_spacer, true);
+	graphics_page->add(graphics_view, true);
+	graphics_page->add(new w_spacer, true);
+	graphics_page->dual_add(new w_button("ADVANCED RENDERING",
+		[graphics_renderer_w, &d](void*) {
+			const int renderer = graphics_renderer_w->get_selection();
+			if (renderer == _no_acceleration)
+				software_rendering_options_dialog(&d);
+			else if (renderer == _opengl_acceleration)
+				OpenGLDialog::Create(renderer)->OpenGLPrefsByRunning();
+		}, nullptr), d);
+	pages->add(graphics_page, true);
+
+	/* HUD has its own top-level page so Graphics remains compact. */
+	vertical_placer *graphics_hud_page =
+		new vertical_placer(get_theme_space(ITEM_WIDGET));
+	graphics_hud_page->center_vertically();
+	graphics_hud_page->min_width(scale_dialog_value(430));
+	table_placer *graphics_hud =
+		new table_placer(2, get_theme_space(ITEM_WIDGET), false);
+	graphics_hud->row_space(scale_dialog_value(4));
+	graphics_hud->col_flags(0, placeable::kAlignRight);
+	w_toggle *graphics_hud_w =
+		new w_toggle(graphics_preferences->screen_mode.hud);
+	graphics_hud->dual_add(graphics_hud_w->label("Show HUD"), d);
+	graphics_hud->dual_add(graphics_hud_w, d);
+	std::vector<Plugin*> embedded_hud_plugins;
+	int embedded_hud_plugin_index = -1;
+	for (auto& plugin : *Plugins::instance())
+	{
+		if (!plugin.hud_lua.empty() && plugin.compatible() && plugin.allowed())
+		{
+			embedded_hud_plugins.push_back(&plugin);
+			if (plugin.enabled)
+				embedded_hud_plugin_index = embedded_hud_plugins.size() - 1;
+		}
+	}
+	std::vector<std::string> embedded_hud_plugin_labels;
+	if (!shapes_file_is_m1())
+	{
+		++embedded_hud_plugin_index;
+		embedded_hud_plugin_labels.push_back("Classic (Built-in)");
+	}
+	for (auto plugin : embedded_hud_plugins)
+		embedded_hud_plugin_labels.push_back(plugin->name);
+	w_select_popup *graphics_hud_plugin_w = new w_select_popup;
+	graphics_hud_plugin_w->set_labels(embedded_hud_plugin_labels);
+	graphics_hud_plugin_w->set_selection(
+		embedded_hud_plugin_index >= 0 ? embedded_hud_plugin_index : 0);
+	graphics_hud->dual_add(
+		graphics_hud_plugin_w->label("HUD Plugin"), d);
+	graphics_hud->dual_add(graphics_hud_plugin_w, d);
+	static const char *embedded_hud_scale_labels[] = {
+		"Normal", "Double", "Largest", nullptr
+	};
+	static const char *embedded_terminal_scale_labels[] = {
+		"Normal", "Double", "Largest", nullptr
+	};
+	w_select *graphics_hud_scale_w = new w_select(
+		graphics_preferences->screen_mode.hud_scale_level,
+		embedded_hud_scale_labels);
+	graphics_hud->dual_add(graphics_hud_scale_w->label("HUD Size"), d);
+	graphics_hud->dual_add(graphics_hud_scale_w, d);
+	w_select *graphics_terminal_scale_w = new w_select(
+		graphics_preferences->screen_mode.term_scale_level,
+		embedded_terminal_scale_labels);
+	graphics_hud->dual_add(
+		graphics_terminal_scale_w->label("Terminal Size"), d);
+	graphics_hud->dual_add(graphics_terminal_scale_w, d);
+	w_toggle *graphics_overlay_map_w = new w_toggle(
+		graphics_preferences->screen_mode.translucent_map);
+	graphics_hud->dual_add(
+		graphics_overlay_map_w->label("Overlay Map"), d);
+	graphics_hud->dual_add(graphics_overlay_map_w, d);
+	w_toggle *graphics_pickup_flash_w =
+		new w_toggle(graphics_preferences->pickup_flash);
+	graphics_hud->dual_add(
+		graphics_pickup_flash_w->label("Item Pickup Flashes"), d);
+	graphics_hud->dual_add(graphics_pickup_flash_w, d);
+	graphics_hud_page->add(graphics_hud, true);
+	pages->add(graphics_hud_page, true);
+
+	/* Embedded Sound page. */
+	vertical_placer *sound_page =
+		new vertical_placer(get_theme_space(ITEM_WIDGET));
+	sound_page->center_vertically();
+	sound_page->min_width(scale_dialog_value(430));
+	table_placer *sound_table =
+		new table_placer(2, get_theme_space(ITEM_WIDGET), false);
+	sound_table->row_space(scale_dialog_value(4));
+	sound_table->col_flags(0, placeable::kAlignRight);
+	static const char *embedded_channel_labels[] = {
+		"Mono", "Stereo", "Quad", "5.1", "6.1", "7.1", nullptr
+	};
+	int embedded_channel_index = 1;
+	switch (sound_preferences->channel_type)
+	{
+		case ChannelType::_mono: embedded_channel_index = 0; break;
+		case ChannelType::_stereo: embedded_channel_index = 1; break;
+		case ChannelType::_quad: embedded_channel_index = 2; break;
+		case ChannelType::_5_1: embedded_channel_index = 3; break;
+		case ChannelType::_6_1: embedded_channel_index = 4; break;
+		case ChannelType::_7_1: embedded_channel_index = 5; break;
+	}
+	w_select *sound_channels_w = new w_select(
+		embedded_channel_index, embedded_channel_labels);
+	sound_table->dual_add(sound_channels_w->label("Channels"), d);
+	sound_table->dual_add(sound_channels_w, d);
+#define ADD_EMBEDDED_SOUND_TOGGLE(widget, flag, label_text) \
+	w_toggle *widget = new w_toggle(TEST_FLAG(sound_preferences->flags, flag)); \
+	sound_table->dual_add(widget->label(label_text), d); \
+	sound_table->dual_add(widget, d)
+	ADD_EMBEDDED_SOUND_TOGGLE(sound_dynamic_w, _dynamic_tracking_flag,
+		"Active Panning");
+	ADD_EMBEDDED_SOUND_TOGGLE(sound_3d_w, _3d_sounds_flag, "3D Sounds");
+	ADD_EMBEDDED_SOUND_TOGGLE(sound_hrtf_w, _hrtf_flag, "HRTF (Headphones)");
+	ADD_EMBEDDED_SOUND_TOGGLE(sound_quality_w, _16bit_sound_flag,
+		"16-bit Source");
+	ADD_EMBEDDED_SOUND_TOGGLE(sound_ambient_w, _ambient_sound_flag,
+		"Ambient Sounds");
+	ADD_EMBEDDED_SOUND_TOGGLE(sound_more_w, _more_sounds_flag, "More Sounds");
+	ADD_EMBEDDED_SOUND_TOGGLE(sound_rapid_w, _lower_restart_delay,
+		"Rapid-fire Sounds");
+#undef ADD_EMBEDDED_SOUND_TOGGLE
+	w_percentage_slider *sound_volume_w = new w_percentage_slider(
+		21, static_cast<int>(sound_preferences->volume_db / 2 + 20));
+	sound_table->dual_add(sound_volume_w->label("Master Volume"), d);
+	sound_table->dual_add(sound_volume_w, d);
+	w_percentage_slider *sound_music_w = new w_percentage_slider(
+		41, sound_preferences->music_db + 20);
+	sound_table->dual_add(sound_music_w->label("Music Volume"), d);
+	sound_table->dual_add(sound_music_w, d);
+	w_percentage_slider *sound_pickup_w = new w_percentage_slider(
+		101, sound_preferences->pickup_volume_percent);
+	sound_table->dual_add(sound_pickup_w->label("Item Pickup Volume"), d);
+	sound_table->dual_add(sound_pickup_w, d);
+	w_toggle *sound_buttons_w = new w_toggle(
+		TEST_FLAG(input_preferences->modifiers, _inputmod_use_button_sounds));
+	sound_table->dual_add(sound_buttons_w->label("In-game Interface Sounds"), d);
+	sound_table->dual_add(sound_buttons_w, d);
+	w_toggle *sound_dialogs_w = new w_toggle(
+		!TEST_FLAG(sound_preferences->flags, _mute_dialogs));
+	sound_table->dual_add(sound_dialogs_w->label("Dialog Sounds"), d);
+	sound_table->dual_add(sound_dialogs_w, d);
+	sound_page->add(sound_table, true);
+	pages->add(sound_page, true);
+
+	/* Online Play remains the next category while it is being migrated. */
+	vertical_placer *online_page =
+		new vertical_placer(get_theme_space(ITEM_WIDGET));
+	online_page->center_vertically();
+	online_page->min_width(scale_dialog_value(430));
+	online_page->dual_add(new w_static_text(
+		"Online identity and networking"), d);
+	online_page->add(new w_spacer, true);
+	online_page->dual_add(new w_button(
+		"ONLINE SETTINGS", online_dialog, &d), d);
+	online_page->add(new w_spacer, true);
+	pages->add(online_page, true);
+
+	/* Embedded Environment page. */
+	vertical_placer *environment_page =
+		new vertical_placer(get_theme_space(ITEM_WIDGET));
+	environment_page->center_vertically();
+	environment_page->min_width(scale_dialog_value(430));
+	tab_placer *environment_tabs = new tab_placer;
+	const vector<string> environment_tab_labels = {
+		"GAME FILES", "FILMS & OPTIONS"
+	};
+	environment_page->dual_add(
+		new w_tab(environment_tab_labels, environment_tabs), d);
+	vertical_placer *environment_files_page = new vertical_placer;
+	environment_files_page->center_vertically();
+	table_placer *environment_files =
+		new table_placer(2, get_theme_space(ITEM_WIDGET), false);
+	environment_files->row_space(scale_dialog_value(4));
+	environment_files->col_flags(0, placeable::kAlignRight);
+#ifndef MAC_APP_STORE
+	w_env_select *environment_map_w = new w_env_select(
+		environment_preferences->map_file, "AVAILABLE MAPS",
+		_typecode_scenario, &d);
+	environment_files->dual_add(environment_map_w->label("Map"), d);
+	environment_files->dual_add(environment_map_w, d);
+	w_env_select *environment_physics_w = new w_env_select(
+		environment_preferences->physics_file, "AVAILABLE PHYSICS MODELS",
+		_typecode_physics, &d);
+	environment_files->dual_add(environment_physics_w->label("Physics"), d);
+	environment_files->dual_add(environment_physics_w, d);
+	w_env_select *environment_shapes_w = new w_env_select(
+		environment_preferences->shapes_file, "AVAILABLE SHAPES",
+		_typecode_shapes, &d);
+	environment_files->dual_add(environment_shapes_w->label("Shapes"), d);
+	environment_files->dual_add(environment_shapes_w, d);
+	w_env_select *environment_sounds_w = new w_env_select(
+		environment_preferences->sounds_file, "AVAILABLE SOUNDS",
+		_typecode_sounds, &d);
+	environment_files->dual_add(environment_sounds_w->label("Sounds"), d);
+	environment_files->dual_add(environment_sounds_w, d);
+	w_env_select *environment_resources_w = new w_env_select(
+		environment_preferences->resources_file, "AVAILABLE FILES",
+		_typecode_application, &d);
+	environment_files->dual_add(
+		environment_resources_w->label("External Resources"), d);
+	environment_files->dual_add(environment_resources_w, d);
+	w_enabling_toggle *environment_solo_enabled_w = new w_enabling_toggle(
+		environment_preferences->use_solo_lua);
+	environment_files->dual_add(
+		environment_solo_enabled_w->label("Use Solo Script"), d);
+	environment_files->dual_add(environment_solo_enabled_w, d);
+	w_env_select *environment_solo_w = new w_env_select(
+		environment_preferences->solo_lua_file, "AVAILABLE SOLO SCRIPTS",
+		_typecode_netscript, &d);
+	environment_files->dual_add(environment_solo_w->label("Solo Script"), d);
+	environment_files->dual_add(environment_solo_w, d);
+	environment_solo_enabled_w->add_dependent_widget(environment_solo_w);
+#else
+	environment_files->dual_add(new w_static_text(
+		"Game files are managed by this application."), d);
+#endif
+	environment_files_page->add(environment_files, true);
+	environment_tabs->add(environment_files_page, true);
+
+	vertical_placer *environment_options_page = new vertical_placer;
+	environment_options_page->center_vertically();
+	table_placer *environment_options =
+		new table_placer(2, get_theme_space(ITEM_WIDGET), false);
+	environment_options->row_space(scale_dialog_value(4));
+	environment_options->col_flags(0, placeable::kAlignRight);
+	static const char *embedded_film_labels[] = {
+		"Aleph One 1.0", "Marathon 2", "Marathon Infinity", nullptr
+	};
+	w_select *environment_film_w = new w_select(
+		environment_preferences->film_profile, embedded_film_labels);
+	environment_options->dual_add(
+		environment_film_w->label("Unversioned Film Profile"), d);
+	environment_options->dual_add(environment_film_w, d);
+#ifndef MAC_APP_STORE
+	w_enabling_toggle *environment_replay_enabled_w = new w_enabling_toggle(
+		environment_preferences->use_replay_net_lua);
+	environment_options->dual_add(
+		environment_replay_enabled_w->label("Use Netscript in Films"), d);
+	environment_options->dual_add(environment_replay_enabled_w, d);
+	w_env_select *environment_replay_w = new w_env_select(
+		network_preferences->netscript_file, "AVAILABLE NETSCRIPTS",
+		_typecode_netscript, &d);
+	environment_replay_w->set_prefer_net(true);
+	environment_options->dual_add(
+		environment_replay_w->label("Netscript File"), d);
+	environment_options->dual_add(environment_replay_w, d);
+	environment_replay_enabled_w->add_dependent_widget(environment_replay_w);
+	w_toggle *environment_extensions_w = new w_toggle(
+		environment_preferences->hide_extensions);
+	environment_options->dual_add(
+		environment_extensions_w->label("Hide File Extensions"), d);
+	environment_options->dual_add(environment_extensions_w, d);
+#endif
+	w_toggle *environment_demos_w = new w_toggle(
+		environment_preferences->auto_play_demos);
+	environment_options->dual_add(
+		environment_demos_w->label("Play Demos When Idle"), d);
+	environment_options->dual_add(environment_demos_w, d);
+#ifdef HAVE_NFD
+	w_toggle *environment_native_w = new w_toggle(
+		environment_preferences->use_native_file_dialogs);
+	environment_options->dual_add(
+		environment_native_w->label("Use Native File Dialogs"), d);
+	environment_options->dual_add(environment_native_w, d);
+#endif
+	static const char *embedded_save_labels[] = {
+		"20", "100", "500", "Unlimited", nullptr
+	};
+	int environment_saves_index = 2;
+	const uint32 embedded_save_values[] = {20, 100, 500, 0};
+	for (int i = 0; i < 4; ++i)
+		if (embedded_save_values[i] ==
+			environment_preferences->maximum_quick_saves)
+			environment_saves_index = i;
+	w_select *environment_saves_w = new w_select(
+		environment_saves_index, embedded_save_labels);
+	environment_options->dual_add(
+		environment_saves_w->label("Unnamed Saves to Keep"), d);
+	environment_options->dual_add(environment_saves_w, d);
+	environment_options_page->add(environment_options, true);
+	environment_tabs->add(environment_options_page, true);
+	environment_page->add(environment_tabs, true);
+	pages->add(environment_page, true);
+
+	/* Embedded Plugins page. */
+	vertical_placer *plugins_page =
+		new vertical_placer(get_theme_space(ITEM_WIDGET));
+	plugins_page->center_vertically();
+	plugins_page->min_width(scale_dialog_value(430));
+	std::vector<Plugin> embedded_plugins(
+		Plugins::instance()->begin(), Plugins::instance()->end());
+	w_plugins *embedded_plugins_w = new w_plugins(
+		embedded_plugins, scale_dialog_value(400), 6);
+	plugins_page->dual_add(embedded_plugins_w, d);
+	pages->add(plugins_page, true);
+
+	/* Sprintathon settings share one compact panel. */
+	vertical_placer *sprintathon_page =
+		new vertical_placer(get_theme_space(ITEM_WIDGET));
+	sprintathon_page->center_vertically();
+	sprintathon_page->min_width(scale_dialog_value(430));
+	table_placer *sprintathon_settings =
+		new table_placer(2, get_theme_space(ITEM_WIDGET), false);
+	sprintathon_settings->row_space(scale_dialog_value(4));
+	sprintathon_settings->col_flags(0, placeable::kAlignRight);
+	w_toggle *enabled_w = new w_toggle(input_preferences->sprintathon_enabled);
+	sprintathon_settings->dual_add(enabled_w->label("Enable Sprintathon Movement"), d);
+	sprintathon_settings->dual_add(enabled_w, d);
+#define ADD_EMBEDDED_SPRINTATHON_TOGGLE(widget, field, label_text) \
+	w_toggle *widget = new w_toggle(input_preferences->field); \
+	sprintathon_settings->dual_add(widget->label(label_text), d); \
+	sprintathon_settings->dual_add(widget, d)
+	ADD_EMBEDDED_SPRINTATHON_TOGGLE(jump_w, sprintathon_jump, "Jumping");
+	ADD_EMBEDDED_SPRINTATHON_TOGGLE(crouch_w, sprintathon_crouch, "Crouch / Kick / Slide");
+	ADD_EMBEDDED_SPRINTATHON_TOGGLE(slide_w, sprintathon_slide, "Sprint Sliding");
+	ADD_EMBEDDED_SPRINTATHON_TOGGLE(long_jump_w, sprintathon_long_jump, "Crouch Long-Jump");
+	ADD_EMBEDDED_SPRINTATHON_TOGGLE(wall_run_w, sprintathon_wall_run, "Wall-Running");
+	ADD_EMBEDDED_SPRINTATHON_TOGGLE(wall_jump_w, sprintathon_wall_jump, "Wall-Jumping");
+	ADD_EMBEDDED_SPRINTATHON_TOGGLE(swimming_w, sprintathon_swimming, "Modern Swimming");
+	ADD_EMBEDDED_SPRINTATHON_TOGGLE(ledge_grab_w, sprintathon_ledge_grab, "Ledge-Grabbing");
+#undef ADD_EMBEDDED_SPRINTATHON_TOGGLE
+	w_toggle *sprint_w = new w_toggle(input_preferences->sprintathon_sprint);
+	sprintathon_settings->dual_add(sprint_w->label("Sprinting"), d);
+	sprintathon_settings->dual_add(sprint_w, d);
+	w_slider *sprint_drain_w = new w_sprintathon_rate_slider(
+		input_preferences->sprintathon_sprint_drain_percent);
+	sprintathon_settings->dual_add(sprint_drain_w->label("Sprint Oxygen Drain"), d);
+	sprintathon_settings->dual_add(sprint_drain_w, d);
+	w_slider *oxygen_recovery_w = new w_sprintathon_rate_slider(
+		input_preferences->sprintathon_oxygen_recovery_percent);
+	sprintathon_settings->dual_add(oxygen_recovery_w->label("Oxygen Recovery"), d);
+	sprintathon_settings->dual_add(oxygen_recovery_w, d);
+	static const char* mouselook_range_labels[] = {
+		"Original (30 degrees)", "45 degrees", "60 degrees", "75 degrees",
+		"Full Vertical", nullptr
+	};
+	w_select *mouselook_w = new w_select(
+		input_preferences->sprintathon_mouselook_mode,
+		mouselook_range_labels);
+	sprintathon_settings->dual_add(mouselook_w->label("Mouselook Range"), d);
+	sprintathon_settings->dual_add(mouselook_w, d);
+	sprintathon_page->add(sprintathon_settings, true);
+	pages->add(sprintathon_page, true);
+
+	embedded_controls_state controls_state = {
+		input_preferences->key_bindings,
+		input_preferences->shell_key_bindings,
+		input_preferences->hotkey_bindings,
+		(input_preferences->modifiers & _inputmod_interchange_run_walk) != 0
+	};
+	pages->add(build_embedded_controls(d, controls_state), true);
+	pages->choose_tab(category_pages[0]);
+
+	horizontal_placer *body = new horizontal_placer(
+		get_theme_space(ITEM_WIDGET) * 2);
+	body->add_flags(placeable::kFill);
+	body->add(sidebar);
+	body->add_flags(placeable::kDefault);
+	body->add(pages, true);
+	root->add(body, true);
+
+	horizontal_placer *footer = new horizontal_placer;
+	footer->dual_add(new w_button("SAVE SETTINGS", dialog_ok, &d), d);
+	footer->dual_add(new w_button("CANCEL", dialog_cancel, &d), d);
+	root->add(footer, true);
+
+	d.set_widget_placer(root);
 
 	// Clear menu screen
 	clear_screen();
 
 	// Run dialog
-	d.run();
+	enter_joystick();
+	const int preferences_result = d.run();
+	exit_joystick();
+	if (preferences_result != 0)
+	{
+		display_main_menu();
+		return;
+	}
+
+	const char *embedded_player_name = player_name_w->get_text();
+	if (embedded_player_name[0])
+	{
+		strncpy(player_preferences->name, embedded_player_name,
+			PREFERENCES_NAME_LENGTH);
+		player_preferences->name[PREFERENCES_NAME_LENGTH] = '\0';
+	}
+	player_preferences->difficulty_level =
+		static_cast<int16>(player_level_w->get_selection());
+	player_preferences->color =
+		static_cast<int16>(player_color_w->get_selection());
+	player_preferences->team =
+		static_cast<int16>(player_team_w->get_selection());
+	player_preferences->crosshairs_active =
+		player_crosshair_w->get_selection();
+	if (player_solo_profile_w)
+	{
+		auto profile = player_solo_profile_w->get_selection();
+		if (profile >= 1) ++profile;
+		player_preferences->solo_profile = profile;
+	}
+	bool embedded_graphics_changed = false;
+	const bool embedded_fullscreen = !graphics_windowed_w->get_selection();
+	embedded_graphics_changed |=
+		embedded_fullscreen != graphics_preferences->screen_mode.fullscreen;
+	graphics_preferences->screen_mode.fullscreen = embedded_fullscreen;
+	const short embedded_renderer =
+		static_cast<short>(graphics_renderer_w->get_selection());
+	embedded_graphics_changed |=
+		embedded_renderer != graphics_preferences->screen_mode.acceleration;
+	graphics_preferences->screen_mode.acceleration = embedded_renderer;
+	if (embedded_renderer)
+		graphics_preferences->screen_mode.bit_depth = 32;
+	const short embedded_gamma =
+		static_cast<short>(graphics_gamma_w->get_selection());
+	embedded_graphics_changed |=
+		embedded_gamma != graphics_preferences->screen_mode.gamma_level;
+	graphics_preferences->screen_mode.gamma_level = embedded_gamma;
+	const int16_t embedded_fps =
+		embedded_fps_values[graphics_fps_w->get_selection()];
+	embedded_graphics_changed |= embedded_fps != graphics_preferences->fps_target;
+	graphics_preferences->fps_target = embedded_fps;
+	const bool embedded_fix_h_not_v =
+		!graphics_limit_vertical_w->get_selection();
+	embedded_graphics_changed |= embedded_fix_h_not_v !=
+		graphics_preferences->screen_mode.fix_h_not_v;
+	graphics_preferences->screen_mode.fix_h_not_v = embedded_fix_h_not_v;
+	const int embedded_fov = graphics_override_fov_w->get_selection() ?
+		graphics_fov_w->get_selection() + 30 : 0;
+	embedded_graphics_changed |=
+		embedded_fov != graphics_preferences->screen_mode.fov;
+	graphics_preferences->screen_mode.fov = embedded_fov;
+	const BobbingType embedded_bobbing = static_cast<BobbingType>(
+		graphics_bobbing_w->get_selection());
+	embedded_graphics_changed |= embedded_bobbing !=
+		graphics_preferences->screen_mode.bobbing_type;
+	graphics_preferences->screen_mode.bobbing_type = embedded_bobbing;
+	graphics_preferences->pickup_flash =
+		graphics_pickup_flash_w->get_selection();
+	const bool embedded_hud = graphics_hud_w->get_selection();
+	embedded_graphics_changed |=
+		embedded_hud != graphics_preferences->screen_mode.hud;
+	graphics_preferences->screen_mode.hud = embedded_hud;
+	const short embedded_hud_scale = static_cast<short>(
+		graphics_hud_scale_w->get_selection());
+	embedded_graphics_changed |= embedded_hud_scale !=
+		graphics_preferences->screen_mode.hud_scale_level;
+	graphics_preferences->screen_mode.hud_scale_level = embedded_hud_scale;
+	const short embedded_terminal_scale = static_cast<short>(
+		graphics_terminal_scale_w->get_selection());
+	embedded_graphics_changed |= embedded_terminal_scale !=
+		graphics_preferences->screen_mode.term_scale_level;
+	graphics_preferences->screen_mode.term_scale_level = embedded_terminal_scale;
+	const bool embedded_overlay_map =
+		graphics_overlay_map_w->get_selection();
+	embedded_graphics_changed |= embedded_overlay_map !=
+		graphics_preferences->screen_mode.translucent_map;
+	graphics_preferences->screen_mode.translucent_map = embedded_overlay_map;
+
+	bool embedded_sound_changed = false;
+	uint16 embedded_sound_flags = 0;
+	if (sound_quality_w->get_selection()) embedded_sound_flags |= _16bit_sound_flag;
+	if (sound_3d_w->get_selection()) embedded_sound_flags |= _3d_sounds_flag;
+	if (sound_hrtf_w->get_selection()) embedded_sound_flags |= _hrtf_flag;
+	if (sound_dynamic_w->get_selection()) embedded_sound_flags |= _dynamic_tracking_flag;
+	if (sound_ambient_w->get_selection()) embedded_sound_flags |= _ambient_sound_flag;
+	if (sound_more_w->get_selection()) embedded_sound_flags |= _more_sounds_flag;
+	if (sound_rapid_w->get_selection()) embedded_sound_flags |= _lower_restart_delay;
+	if (!sound_dialogs_w->get_selection()) embedded_sound_flags |= _mute_dialogs;
+	embedded_sound_changed |= embedded_sound_flags != sound_preferences->flags;
+	sound_preferences->flags = embedded_sound_flags;
+	uint16 embedded_input_flags =
+		input_preferences->modifiers & ~_inputmod_use_button_sounds;
+	if (sound_buttons_w->get_selection())
+		embedded_input_flags |= _inputmod_use_button_sounds;
+	embedded_sound_changed |= embedded_input_flags != input_preferences->modifiers;
+	input_preferences->modifiers = embedded_input_flags;
+	const float embedded_volume = (sound_volume_w->get_selection() - 20) * 2;
+	embedded_sound_changed |= embedded_volume != sound_preferences->volume_db;
+	sound_preferences->volume_db = embedded_volume;
+	const float embedded_music = sound_music_w->get_selection() - 20;
+	embedded_sound_changed |= embedded_music != sound_preferences->music_db;
+	sound_preferences->music_db = embedded_music;
+	const int16 embedded_pickup_volume = static_cast<int16>(
+		sound_pickup_w->get_selection());
+	embedded_sound_changed |= embedded_pickup_volume !=
+		sound_preferences->pickup_volume_percent;
+	sound_preferences->pickup_volume_percent = embedded_pickup_volume;
+	static const ChannelType embedded_channels[] = {
+		ChannelType::_mono, ChannelType::_stereo, ChannelType::_quad,
+		ChannelType::_5_1, ChannelType::_6_1, ChannelType::_7_1
+	};
+	const ChannelType embedded_channel =
+		embedded_channels[sound_channels_w->get_selection()];
+	embedded_sound_changed |= embedded_channel != sound_preferences->channel_type;
+	sound_preferences->channel_type = embedded_channel;
+	if (embedded_sound_changed)
+		SoundManager::instance()->SetParameters(*sound_preferences);
+
+	bool embedded_environment_changed = false;
+#ifndef MAC_APP_STORE
+	const char *embedded_path = environment_map_w->get_path();
+	if (strcmp(embedded_path, environment_preferences->map_file))
+	{
+		strncpy(environment_preferences->map_file, embedded_path, 256);
+		environment_preferences->map_file[255] = '\0';
+		environment_preferences->map_checksum =
+			read_wad_file_checksum(environment_map_w->get_file_specifier());
+		embedded_environment_changed = true;
+	}
+	embedded_path = environment_physics_w->get_path();
+	if (strcmp(embedded_path, environment_preferences->physics_file))
+	{
+		strncpy(environment_preferences->physics_file, embedded_path, 256);
+		environment_preferences->physics_file[255] = '\0';
+		environment_preferences->physics_checksum =
+			read_wad_file_checksum(environment_physics_w->get_file_specifier());
+		embedded_environment_changed = true;
+	}
+	embedded_path = environment_shapes_w->get_path();
+	if (strcmp(embedded_path, environment_preferences->shapes_file))
+	{
+		strncpy(environment_preferences->shapes_file, embedded_path, 256);
+		environment_preferences->shapes_file[255] = '\0';
+		environment_preferences->shapes_mod_date =
+			environment_shapes_w->get_file_specifier().GetDate();
+		embedded_environment_changed = true;
+	}
+	embedded_path = environment_sounds_w->get_path();
+	if (strcmp(embedded_path, environment_preferences->sounds_file))
+	{
+		strncpy(environment_preferences->sounds_file, embedded_path, 256);
+		environment_preferences->sounds_file[255] = '\0';
+		environment_preferences->sounds_mod_date =
+			environment_sounds_w->get_file_specifier().GetDate();
+		embedded_environment_changed = true;
+	}
+	embedded_path = environment_resources_w->get_path();
+	if (strcmp(embedded_path, environment_preferences->resources_file))
+	{
+		strncpy(environment_preferences->resources_file, embedded_path, 256);
+		environment_preferences->resources_file[255] = '\0';
+		embedded_environment_changed = true;
+	}
+	const bool embedded_use_solo =
+		environment_solo_enabled_w->get_selection() != 0;
+	embedded_environment_changed |=
+		embedded_use_solo != environment_preferences->use_solo_lua;
+	environment_preferences->use_solo_lua = embedded_use_solo;
+	embedded_path = environment_solo_w->get_path();
+	if (strcmp(embedded_path, environment_preferences->solo_lua_file))
+	{
+		strncpy(environment_preferences->solo_lua_file, embedded_path, 256);
+		environment_preferences->solo_lua_file[255] = '\0';
+		embedded_environment_changed = true;
+	}
+	const bool embedded_use_replay =
+		environment_replay_enabled_w->get_selection() != 0;
+	embedded_environment_changed |=
+		embedded_use_replay != environment_preferences->use_replay_net_lua;
+	environment_preferences->use_replay_net_lua = embedded_use_replay;
+	embedded_path = environment_replay_w->get_path();
+	if (strcmp(embedded_path, network_preferences->netscript_file))
+	{
+		strncpy(network_preferences->netscript_file, embedded_path, 256);
+		network_preferences->netscript_file[255] = '\0';
+		embedded_environment_changed = true;
+	}
+	const bool embedded_hide_extensions =
+		environment_extensions_w->get_selection() != 0;
+	embedded_environment_changed |=
+		embedded_hide_extensions != environment_preferences->hide_extensions;
+	environment_preferences->hide_extensions = embedded_hide_extensions;
+#endif
+	const FilmProfileType embedded_film = static_cast<FilmProfileType>(
+		environment_film_w->get_selection());
+	embedded_environment_changed |=
+		embedded_film != environment_preferences->film_profile;
+	environment_preferences->film_profile = embedded_film;
+	const bool embedded_auto_demos =
+		environment_demos_w->get_selection() != 0;
+	embedded_environment_changed |=
+		embedded_auto_demos != environment_preferences->auto_play_demos;
+	environment_preferences->auto_play_demos = embedded_auto_demos;
+#ifdef HAVE_NFD
+	const bool embedded_native_dialogs =
+		environment_native_w->get_selection() != 0;
+	embedded_environment_changed |= embedded_native_dialogs !=
+		environment_preferences->use_native_file_dialogs;
+	environment_preferences->use_native_file_dialogs = embedded_native_dialogs;
+#endif
+	const uint32 embedded_max_saves =
+		embedded_save_values[environment_saves_w->get_selection()];
+	embedded_environment_changed |= embedded_max_saves !=
+		environment_preferences->maximum_quick_saves;
+	environment_preferences->maximum_quick_saves = embedded_max_saves;
+	if (embedded_environment_changed)
+		load_environment_from_preferences();
+	save_embedded_controls(controls_state);
+
+	bool embedded_plugins_changed = false;
+	auto active_plugin = Plugins::instance()->begin();
+	for (auto edited_plugin = embedded_plugins.begin();
+		edited_plugin != embedded_plugins.end();
+		++edited_plugin, ++active_plugin)
+	{
+		embedded_plugins_changed |=
+			active_plugin->enabled != edited_plugin->enabled;
+		active_plugin->enabled = edited_plugin->enabled;
+	}
+	if (embedded_plugins_changed)
+	{
+		Plugins::instance()->invalidate();
+		write_preferences();
+		ResetAllMMLValues();
+		LoadBaseMMLScripts(true);
+		Plugins::instance()->load_mml(true);
+		Plugins::instance()->set_map_checksum(get_current_map_checksum());
+		LoadLevelScripts(get_map_file());
+
+	}
+
+	int selected_hud_plugin = static_cast<int>(
+		graphics_hud_plugin_w->get_selection());
+	if (!shapes_file_is_m1()) --selected_hud_plugin;
+	bool embedded_hud_plugin_changed =
+		static_cast<int>(graphics_hud_plugin_w->get_selection()) !=
+		embedded_hud_plugin_index;
+	if (embedded_hud_plugin_changed)
+	{
+		for (size_t i = 0; i < embedded_hud_plugins.size(); ++i)
+			embedded_hud_plugins[i]->enabled =
+				static_cast<int>(i) == selected_hud_plugin;
+		Plugins::instance()->invalidate();
+		ResetAllMMLValues();
+		LoadBaseMMLScripts(true);
+		Plugins::instance()->load_mml(true);
+	}
+
+	input_preferences->sprintathon_enabled = enabled_w->get_selection();
+	input_preferences->sprintathon_mouselook_mode = mouselook_w->get_selection();
+#define STORE_EMBEDDED_SPRINTATHON_TOGGLE(field, widget) \
+	input_preferences->field = widget->get_selection()
+	STORE_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_jump, jump_w);
+	STORE_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_crouch, crouch_w);
+	STORE_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_sprint, sprint_w);
+	STORE_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_slide, slide_w);
+	STORE_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_long_jump, long_jump_w);
+	STORE_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_wall_run, wall_run_w);
+	STORE_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_wall_jump, wall_jump_w);
+	STORE_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_swimming, swimming_w);
+	STORE_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_ledge_grab, ledge_grab_w);
+#undef STORE_EMBEDDED_SPRINTATHON_TOGGLE
+	input_preferences->sprintathon_sprint_drain_percent =
+		sprint_drain_w->get_selection() + 10;
+	input_preferences->sprintathon_oxygen_recovery_percent =
+		oxygen_recovery_w->get_selection() + 10;
+	write_preferences();
+	if (embedded_graphics_changed)
+	{
+		change_screen_mode(&graphics_preferences->screen_mode, true);
+		clear_screen(true);
+	}
 
 	// Redraw main menu
 	display_main_menu();
@@ -2527,21 +3478,6 @@ static void controller_details_dialog(void *arg)
 }
 
 
-class w_sprintathon_rate_slider : public w_slider
-{
-public:
-	explicit w_sprintathon_rate_slider(int percent) :
-		w_slider(391, percent - 10)
-	{
-		init_formatted_value();
-	}
-
-	std::string formatted_value(void) override
-	{
-		return std::to_string(get_selection() + 10) + "%";
-	}
-};
-
 static void sprintathon_dialog(void *arg)
 {
 	dialog d;
@@ -2622,6 +3558,353 @@ static void sprintathon_dialog(void *arg)
 #undef STORE_SPRINTATHON_TOGGLE
 		write_preferences();
 	}
+}
+
+namespace
+{
+enum embedded_binding_source
+{
+	embedded_game_binding,
+	embedded_shell_binding,
+	embedded_hotkey_binding,
+	embedded_always_run_binding,
+	embedded_fixed_binding
+};
+
+struct embedded_binding_row
+{
+	bool heading;
+	std::string label;
+	embedded_binding_source source;
+	int index;
+};
+
+class w_embedded_binding_grid : public w_list_base
+{
+public:
+	w_embedded_binding_grid(embedded_controls_state& state,
+		const std::vector<embedded_binding_row>& rows, int shown_rows) :
+		w_list_base(scale_dialog_value(425), shown_rows, 0),
+		m_state(state), m_rows(rows)
+	{
+		num_items = m_rows.size();
+		rect.h = item_height() * static_cast<uint16>(shown_items) +
+			get_theme_space(LIST_WIDGET, T_SPACE) +
+			get_theme_space(LIST_WIDGET, B_SPACE);
+		saved_min_height = rect.h;
+		new_items();
+	}
+
+	void refresh()
+	{
+		dirty = true;
+		if (get_owning_dialog())
+			get_owning_dialog()->draw_dirty_widgets();
+	}
+
+	void click(int x, int y) override
+	{
+		if (x >= rect.w - get_theme_space(LIST_WIDGET, TROUGH_R_SPACE))
+		{
+			w_list_base::click(x, y);
+			return;
+		}
+		if (selection >= m_rows.size() || m_rows[selection].heading ||
+			m_rows[selection].source == embedded_fixed_binding)
+			return;
+		if (m_rows[selection].source == embedded_always_run_binding)
+		{
+			m_state.always_run = !m_state.always_run;
+			refresh();
+			return;
+		}
+
+		const int label_width = scale_dialog_value(170);
+		if (x < label_width)
+			return;
+		const int binding_width =
+			(rect.w - label_width - scale_dialog_value(12)) / 3;
+		int column = (x - label_width) / binding_width;
+		if (column < 0 || column > 2)
+			return;
+		edit_binding(m_rows[selection], static_cast<w_key::Type>(column));
+	}
+
+protected:
+	void item_selected() override {}
+	uint16 item_height() const override
+	{
+		return font->get_line_height() + scale_dialog_value(3);
+	}
+
+	void draw_items(SDL_Surface *s) const override
+	{
+		int16 y = rect.y + get_theme_space(LIST_WIDGET, T_SPACE);
+		for (size_t n = top_item;
+			n < top_item + MIN(shown_items, num_items); ++n)
+		{
+			draw_row(m_rows[n], s, rect.x + get_theme_space(LIST_WIDGET, L_SPACE),
+				y, rect.w - get_theme_space(LIST_WIDGET, L_SPACE) -
+				get_theme_space(LIST_WIDGET, R_SPACE), n == selection && active);
+			y += item_height();
+		}
+	}
+
+private:
+	key_binding_map& bindings(embedded_binding_source source)
+	{
+		if (source == embedded_shell_binding) return m_state.shell_keys;
+		if (source == embedded_hotkey_binding) return m_state.hotkeys;
+		return m_state.keys;
+	}
+
+	const key_binding_map& bindings(embedded_binding_source source) const
+	{
+		if (source == embedded_shell_binding) return m_state.shell_keys;
+		if (source == embedded_hotkey_binding) return m_state.hotkeys;
+		return m_state.keys;
+	}
+
+	SDL_Scancode binding_for(const embedded_binding_row& row,
+		w_key::Type type) const
+	{
+		if (row.source == embedded_fixed_binding)
+		{
+			if (type == w_key::KeyboardKey) return SDL_SCANCODE_ESCAPE;
+			if (type == w_key::JoystickButton)
+				return static_cast<SDL_Scancode>(AO_SCANCODE_JOYSTICK_ESCAPE);
+			return SDL_SCANCODE_UNKNOWN;
+		}
+		auto found = bindings(row.source).find(row.index);
+		if (found == bindings(row.source).end()) return SDL_SCANCODE_UNKNOWN;
+		for (auto key : found->second)
+			if (w_key::event_type_for_key(key) == type) return key;
+		return SDL_SCANCODE_UNKNOWN;
+	}
+
+	void edit_binding(const embedded_binding_row& row, w_key::Type type)
+	{
+		dialog key_dialog;
+		vertical_placer *placer = new vertical_placer(get_theme_space(ITEM_WIDGET));
+		placer->dual_add(new w_static_text(row.label.c_str()), key_dialog);
+		placer->dual_add(new w_static_text(
+			"Click the field, then press a key or button."), key_dialog);
+		w_key *key_widget = new w_key(binding_for(row, type), type);
+		placer->dual_add(key_widget, key_dialog);
+		horizontal_placer *buttons = new horizontal_placer;
+		buttons->dual_add(new w_button("CLEAR", [key_widget](void*) {
+			key_widget->set_key(SDL_SCANCODE_UNKNOWN);
+		}, nullptr), key_dialog);
+		buttons->dual_add(new w_button("SAVE", dialog_ok, &key_dialog), key_dialog);
+		buttons->dual_add(new w_button("CANCEL", dialog_cancel, &key_dialog), key_dialog);
+		placer->add(buttons, true);
+		key_dialog.set_widget_placer(placer);
+		if (key_dialog.run() != 0) return;
+
+		const SDL_Scancode new_key = key_widget->get_key();
+		for (key_binding_map *map : {&m_state.keys, &m_state.shell_keys, &m_state.hotkeys})
+			for (auto& entry : *map)
+				entry.second.erase(new_key);
+
+		auto& set = bindings(row.source)[row.index];
+		for (auto it = set.begin(); it != set.end(); )
+		{
+			if (w_key::event_type_for_key(*it) == type) it = set.erase(it);
+			else ++it;
+		}
+		if (new_key != SDL_SCANCODE_UNKNOWN) set.insert(new_key);
+		refresh();
+	}
+
+	void draw_cell(SDL_Surface *s, SDL_Scancode key, int x, int y,
+		int right, int state) const
+	{
+		const char *name = key == SDL_SCANCODE_UNKNOWN ? "none" : GetSDLKeyName(key);
+		set_drawing_clip_rectangle(0, x, static_cast<short>(s->h), right);
+		draw_text(s, name, x, y + font->get_ascent(),
+			SDL_MapRGB(s->format, 255, 255, 255), font, style);
+		set_drawing_clip_rectangle(SHRT_MIN, SHRT_MIN, SHRT_MAX, SHRT_MAX);
+	}
+
+	void draw_row(const embedded_binding_row& row, SDL_Surface *s,
+		int16 x, int16 y, uint16 width, bool selected) const
+	{
+		const int state = selected ? ACTIVE_STATE : DEFAULT_STATE;
+		if (row.heading && row.label == "Bindings")
+		{
+			const int label_width = scale_dialog_value(170);
+			const int cell_width = (width - label_width) / 3;
+			const char *headers[] = {"Keyboard", "Mouse", "Controller"};
+			for (int column = 0; column < 3; ++column)
+				draw_text(s, headers[column],
+					x + label_width + column * cell_width,
+					y + font->get_ascent(),
+					SDL_MapRGB(s->format, 155, 79, 32), font, style);
+			return;
+		}
+		if (row.heading)
+		{
+			draw_text(s, row.label.c_str(), x, y + font->get_ascent(),
+				SDL_MapRGB(s->format, 155, 79, 32), font, style);
+			return;
+		}
+		if (row.source == embedded_always_run_binding)
+		{
+			const char *label = m_state.always_run ?
+				"[x] Always Run" : "[ ] Always Run";
+			const int label_x = x + (width - text_width(label, font, style)) / 2;
+			draw_text(s, label, label_x, y + font->get_ascent(),
+				get_theme_color(ITEM_WIDGET, state), font, style);
+			return;
+		}
+		const int label_width = scale_dialog_value(170);
+		const int cell_width = (width - label_width) / 3;
+		draw_text(s, row.label.c_str(), x, y + font->get_ascent(),
+			get_theme_color(ITEM_WIDGET, state), font, style);
+		for (int column = 0; column < 3; ++column)
+		{
+			const int cell_x = x + label_width + column * cell_width;
+			draw_cell(s, binding_for(row, static_cast<w_key::Type>(column)),
+				cell_x, y, cell_x + cell_width, state);
+		}
+	}
+
+	embedded_controls_state& m_state;
+	std::vector<embedded_binding_row> m_rows;
+};
+}
+
+static placeable *build_embedded_controls(
+	dialog& d, embedded_controls_state& state)
+{
+	vertical_placer *page = new vertical_placer(get_theme_space(ITEM_WIDGET));
+	page->center_vertically();
+	page->min_width(scale_dialog_value(430));
+	tab_placer *tabs = new tab_placer;
+	const vector<string> control_tab_labels = {
+		"GAME CONTROLS", "HOTKEYS", "OTHER"
+	};
+	page->dual_add(new w_tab(control_tab_labels, tabs), d);
+
+	std::vector<embedded_binding_row> game_rows = {
+		{true, "Bindings", embedded_game_binding, 0},
+		{true, "Movement", embedded_game_binding, 0},
+		{false, "Move Forward", embedded_game_binding, 0},
+		{false, "Move Backward", embedded_game_binding, 1},
+		{false, "Sidestep Left", embedded_game_binding, 4},
+		{false, "Sidestep Right", embedded_game_binding, 5},
+		{false, "Sprint", embedded_game_binding, 17},
+		{false, "Jump / Swim", embedded_game_binding, 10},
+		{false, "Crouch / Slide / Kick", embedded_game_binding, 20},
+		{false, "Run / Swim", embedded_game_binding, 16},
+		{false, "Always Run", embedded_always_run_binding, 0},
+		{true, "Weapons", embedded_game_binding, 0},
+		{false, "Primary Fire", embedded_game_binding, 13},
+		{false, "Secondary Fire", embedded_game_binding, 14},
+		{false, "Reload", embedded_game_binding, 15},
+		{false, "Previous Weapon", embedded_game_binding, 11},
+		{false, "Next Weapon", embedded_game_binding, 12},
+		{true, "Interface", embedded_game_binding, 0},
+		{false, "Use / Action", embedded_game_binding, 18},
+		{false, "Exit Game", embedded_fixed_binding, 0},
+		{false, "Show Map", embedded_game_binding, 19},
+		{false, "Zoom Map In", embedded_shell_binding, 5},
+		{false, "Zoom Map Out", embedded_shell_binding, 6},
+		{false, "Sound Volume Up", embedded_shell_binding, 3},
+		{false, "Sound Volume Down", embedded_shell_binding, 4},
+		{false, "Inventory Left", embedded_shell_binding, 0},
+		{false, "Inventory Right", embedded_shell_binding, 1},
+		{true, "System", embedded_game_binding, 0},
+		{false, "Switch Player View", embedded_shell_binding, 2},
+		{false, "Chat / Console", embedded_shell_binding, 8},
+		{false, "Show FPS", embedded_shell_binding, 7},
+		{false, "Network Stats", embedded_shell_binding, 9},
+		{true, "Other", embedded_game_binding, 0},
+		{false, "Turn Left", embedded_game_binding, 2},
+		{false, "Turn Right", embedded_game_binding, 3},
+		{false, "Glance Left", embedded_game_binding, 6},
+		{false, "Glance Right", embedded_game_binding, 7},
+		{false, "Look Up", embedded_game_binding, 8},
+		{false, "Look Down", embedded_game_binding, 9}
+	};
+	vertical_placer *game = new vertical_placer;
+	game->center_vertically();
+	w_embedded_binding_grid *game_grid =
+		new w_embedded_binding_grid(state, game_rows, 13);
+	game->dual_add(game_grid, d);
+	game->dual_add(new w_button("RESET TO DEFAULTS",
+		[&state, game_grid](void*) {
+			dialog confirm;
+			vertical_placer *content = new vertical_placer(
+				get_theme_space(ITEM_WIDGET));
+			content->dual_add(new w_static_text(
+				"Reset all controls to their defaults?"), confirm);
+			horizontal_placer *buttons = new horizontal_placer;
+			buttons->dual_add(new w_button("RESET", dialog_ok, &confirm), confirm);
+			buttons->dual_add(new w_button("CANCEL", dialog_cancel, &confirm), confirm);
+			content->add(buttons, true);
+			confirm.set_widget_placer(content);
+			if (confirm.run() != 0)
+				return;
+			state.keys = default_key_bindings;
+			state.shell_keys = default_shell_key_bindings;
+			state.hotkeys = default_hotkey_bindings;
+			state.always_run = true;
+			game_grid->refresh();
+		}, nullptr), d);
+	tabs->add(game, true);
+
+	std::vector<embedded_binding_row> hotkey_rows;
+	for (int i = 0; i < NUMBER_OF_HOTKEYS; ++i)
+		hotkey_rows.push_back({false, hotkey_action_name[i],
+			embedded_hotkey_binding, i});
+	vertical_placer *hotkeys = new vertical_placer;
+	hotkeys->center_vertically();
+	hotkeys->dual_add(new w_static_text(
+		"Hotkeys 1-9 select weapons; Lua scripts may override them."), d);
+	hotkeys->dual_add(new w_static_text(
+		"Hotkeys 10-12 are reserved for Lua scripts."), d);
+	w_embedded_binding_grid *hotkey_grid =
+		new w_embedded_binding_grid(state, hotkey_rows, 12);
+	hotkeys->dual_add(hotkey_grid, d);
+	tabs->add(hotkeys, true);
+
+	vertical_placer *other = new vertical_placer;
+	other->center_vertically();
+	other->dual_add(new w_static_text(
+		"These keyboard shortcuts cannot be changed."), d);
+	table_placer *other_table =
+		new table_placer(2, get_theme_space(ITEM_WIDGET), false);
+	const char *other_shortcuts[][2] = {
+		{"N", "Begin New Game"}, {"O", "Continue Saved Game"},
+		{"G / J", "Gather / Join Network Game"}, {"P", "Preferences"},
+		{"Q", "Quit"}, {"F1 / F2", "Change Resolution"},
+		{"F8", "Crosshairs"}, {"F9", "Screenshot"},
+		{"F10", "Debug Information"}, {"F11 / F12", "Brightness"},
+		{"Alt+Enter", "Toggle Fullscreen"}, {"Escape", "Exit Game"}
+	};
+	for (const auto& shortcut : other_shortcuts)
+	{
+		other_table->dual_add(new w_label(shortcut[0]), d);
+		other_table->dual_add(new w_label(shortcut[1]), d);
+	}
+	other->add(other_table, true);
+	tabs->add(other, true);
+
+	page->add(tabs, true);
+	return page;
+}
+
+static void save_embedded_controls(const embedded_controls_state& state)
+{
+	input_preferences->key_bindings = state.keys;
+	input_preferences->shell_key_bindings = state.shell_keys;
+	input_preferences->hotkey_bindings = state.hotkeys;
+	input_preferences->modifiers &= ~_inputmod_run_key_toggle;
+	if (state.always_run)
+		input_preferences->modifiers |= _inputmod_interchange_run_walk;
+	else
+		input_preferences->modifiers &= ~_inputmod_interchange_run_walk;
 }
 
 static void controls_dialog(void *arg)
@@ -3777,6 +5060,7 @@ InfoTree graphics_preferences_tree()
 	root.put_attr("software_alpha_blending", graphics_preferences->software_alpha_blending);
 	root.put_attr("software_sdl_driver", graphics_preferences->software_sdl_driver);
 	root.put_attr("fps_target", graphics_preferences->fps_target);
+	root.put_attr("pickup_flash", graphics_preferences->pickup_flash);
 	root.put_attr("anisotropy_level", graphics_preferences->OGL_Configure.AnisotropyLevel);
 	root.put_attr("multisamples", graphics_preferences->OGL_Configure.Multisamples);
 	root.put_attr("wait_for_vsync", graphics_preferences->OGL_Configure.WaitForVSync);
@@ -4118,6 +5402,8 @@ InfoTree sound_preferences_tree()
 	
 	root.put_attr("volume_db", sound_preferences->volume_db);
 	root.put_attr("music_db", sound_preferences->music_db);
+	root.put_attr("pickup_volume_percent",
+		sound_preferences->pickup_volume_percent);
 	root.put_attr("flags", sound_preferences->flags);
 	root.put_attr("rate", sound_preferences->rate);
 	root.put_attr("samples", sound_preferences->samples);
@@ -4313,6 +5599,7 @@ static void default_graphics_preferences(graphics_preferences_data *preferences)
 	preferences->software_alpha_blending = _sw_alpha_off;
 	preferences->software_sdl_driver = _sw_driver_default;
 	preferences->fps_target = 60;
+	preferences->pickup_flash = true;
 
 	preferences->movie_export_video_quality = 50;
 	preferences->movie_export_audio_quality = 50;
@@ -4801,6 +6088,7 @@ void parse_graphics_preferences(InfoTree root, std::string version)
 	root.read_attr("software_alpha_blending", graphics_preferences->software_alpha_blending);
 	root.read_attr("software_sdl_driver", graphics_preferences->software_sdl_driver);
 	root.read_attr("fps_target", graphics_preferences->fps_target);
+	root.read_attr("pickup_flash", graphics_preferences->pickup_flash);
 	root.read_attr("anisotropy_level", graphics_preferences->OGL_Configure.AnisotropyLevel);
 	root.read_attr("multisamples", graphics_preferences->OGL_Configure.Multisamples);
 	root.read_attr("wait_for_vsync", graphics_preferences->OGL_Configure.WaitForVSync);
@@ -5183,6 +6471,8 @@ void parse_sound_preferences(InfoTree root, std::string version)
 	root.read_attr("rate", sound_preferences->rate);
 	root.read_attr("samples", sound_preferences->samples);
 	root.read_attr("video_export_volume_db", sound_preferences->video_export_volume_db);
+	root.read_attr("pickup_volume_percent",
+		sound_preferences->pickup_volume_percent);
 
 	int channel_type = 0;
 	root.read_attr("channel", channel_type);

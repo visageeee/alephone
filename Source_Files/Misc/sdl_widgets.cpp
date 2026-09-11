@@ -336,6 +336,11 @@ void w_button_base::draw(SDL_Surface *s) const
 		pixel = get_theme_color(type, state, FRAME_COLOR);
 		draw_rectangle(s, &rect, pixel);
 	}
+	if (active)
+	{
+		SDL_Rect focus = rect;
+		draw_rectangle(s, &focus, SDL_MapRGB(s->format, 255, 255, 255));
+	}
 
 	draw_text(s, text.c_str(), rect.x + get_theme_space(type, BUTTON_L_SPACE),
 		  rect.y + get_theme_space(type, BUTTON_T_SPACE) + font->get_ascent(),
@@ -681,7 +686,7 @@ const uint16 MAX_TEXT_WIDTH = 200;
 w_select_button::w_select_button(const char *s, action_proc p, void *a, bool u)
 	: widget(LABEL_WIDGET), selection(s), proc(p), arg(a), utf8(u), p_flags(placeable::kDefault), down(false)
 {
-	uint16 max_selection_width = MAX_TEXT_WIDTH;
+	uint16 max_selection_width = scale_dialog_value(MAX_TEXT_WIDTH);
 
 	saved_min_width = max_selection_width;
 	saved_min_height = font->get_line_height();
@@ -812,7 +817,11 @@ void w_select::draw(SDL_Surface *s) const
 
     int state = enabled ? (active ? ACTIVE_STATE : DEFAULT_STATE) : DISABLED_STATE;
 
-    draw_text(s, str, rect.x, y, get_theme_color(ITEM_WIDGET, state), font, style, utf8);
+	// Selection values are answers to the descriptive label beside them.
+	// Keep enabled values white so labels and values remain visually distinct.
+	const uint32 color = enabled ? SDL_MapRGB(s->format, 255, 255, 255) :
+		get_theme_color(ITEM_WIDGET, state);
+	draw_text(s, str, rect.x, y, color, font, style, utf8);
 
 	// Cursor
 	if (active) {
@@ -1008,16 +1017,19 @@ void w_toggle::draw(SDL_Surface *s) const
 	}
 	else if (labels == onoff_labels)
 	{
-		draw_text(s, str, rect.x, rect.y + (rect.h - saved_min_height) / 2 + get_theme_space(CHECKBOX, BUTTON_T_SPACE), get_theme_color(LABEL_WIDGET, state, FOREGROUND_COLOR), font, style, utf8);
+		const uint32 color = enabled ? SDL_MapRGB(s->format, 255, 255, 255) :
+			get_theme_color(LABEL_WIDGET, state, FOREGROUND_COLOR);
+		draw_text(s, str, rect.x, rect.y + (rect.h - saved_min_height) / 2 + get_theme_space(CHECKBOX, BUTTON_T_SPACE), color, font, style, utf8);
 	}
 	else
 	{
 		draw_text(s, str, rect.x, rect.y + font->get_ascent(), get_theme_color(ITEM_WIDGET, state), font, style, utf8);
 	}
 	
-	// Cursor
-	if (active) {
-		//!!
+	if (active)
+	{
+		SDL_Rect focus = rect;
+		draw_rectangle(s, &focus, SDL_MapRGB(s->format, 255, 255, 255));
 	}
 }
 
@@ -1069,7 +1081,8 @@ w_player_color::w_player_color(int selection) : w_select(selection, NULL)
 void w_player_color::draw(SDL_Surface *s) const
 {
 	uint32 pixel = get_dialog_player_color(selection);
-	SDL_Rect r = {rect.x, rect.y + 1, 48, rect.h - 2};
+	SDL_Rect r = {rect.x, static_cast<Sint16>(rect.y + scale_dialog_value(1)),
+		scale_dialog_value(48), static_cast<Uint16>(rect.h - scale_dialog_value(2))};
 	SDL_FillRect(s, &r, pixel);
 
 	// Cursor
@@ -1081,13 +1094,13 @@ void w_player_color::draw(SDL_Surface *s) const
 class w_color_block : public widget {
 public:
 	w_color_block(const rgb_color *color) : m_color(color) { 
-		saved_min_height = 64;
-		saved_min_width = 64;
+		saved_min_height = scale_dialog_value(64);
+		saved_min_width = scale_dialog_value(64);
 	}
 
 	void draw(SDL_Surface *s) const {
 		uint32 pixel = SDL_MapRGB(s->format, m_color->red >> 8, m_color->green >> 8, m_color->blue >> 8);
-		SDL_Rect r = { rect.x, rect.y, 64, 64 };
+		SDL_Rect r = { rect.x, rect.y, scale_dialog_value(64), scale_dialog_value(64) };
 		SDL_FillRect(s, &r, pixel);
 	}
 
@@ -1156,7 +1169,8 @@ void w_color_picker::click(int, int)
 void w_color_picker::draw(SDL_Surface *s) const
 {
 	uint32 pixel = SDL_MapRGB(s->format, m_color.red >> 8, m_color.green >> 8, m_color.blue >> 8);
-	SDL_Rect r = {rect.x, rect.y + 1, 48, rect.h - 2 };
+	SDL_Rect r = {rect.x, static_cast<Sint16>(rect.y + scale_dialog_value(1)),
+		scale_dialog_value(48), static_cast<Uint16>(rect.h - scale_dialog_value(2))};
 	SDL_FillRect(s, &r, pixel);
 }
 
@@ -1171,7 +1185,7 @@ w_text_entry::w_text_entry(size_t max_c, const char *initial_text)
 	buf = new char[max_chars + 1];
 	set_text(initial_text);
 
-	saved_min_width = MAX_TEXT_WIDTH;
+	saved_min_width = scale_dialog_value(MAX_TEXT_WIDTH);
 
 	saved_min_height =  (int16) font->get_ascent() + font->get_descent() + font->get_leading();
 }
@@ -1448,7 +1462,7 @@ void w_text_entry::modified_text(void)
 w_number_entry::w_number_entry(int initial_number) : w_text_entry(/*16*/4, NULL)
 {
 	set_number(initial_number);
-	saved_min_width = MAX_TEXT_WIDTH / 2;
+	saved_min_width = scale_dialog_value(MAX_TEXT_WIDTH / 2);
 }
 
 void w_number_entry::event(SDL_Event &e)
@@ -1738,18 +1752,21 @@ w_slider::w_slider(int num, int s) : widget(LABEL_WIDGET), selection(s), num_ite
 {
 	slider_l = get_theme_image(SLIDER_WIDGET, DEFAULT_STATE, SLIDER_L_IMAGE);
 	slider_r = get_theme_image(SLIDER_WIDGET, DEFAULT_STATE, SLIDER_R_IMAGE);
-	slider_c = get_theme_image(SLIDER_WIDGET, DEFAULT_STATE, SLIDER_C_IMAGE, SLIDER_WIDTH - slider_l->w - slider_r->w);
+	slider_c = get_theme_image(SLIDER_WIDGET, DEFAULT_STATE, SLIDER_C_IMAGE,
+		scale_dialog_value(SLIDER_WIDTH) - slider_l->w - slider_r->w);
 	thumb = get_theme_image(SLIDER_THUMB, DEFAULT_STATE, 0);
 	
-	trough_width = SLIDER_WIDTH - get_theme_space(SLIDER_WIDGET, SLIDER_L_SPACE) - get_theme_space(SLIDER_WIDGET, SLIDER_R_SPACE);
+	trough_width = scale_dialog_value(SLIDER_WIDTH) -
+		get_theme_space(SLIDER_WIDGET, SLIDER_L_SPACE) -
+		get_theme_space(SLIDER_WIDGET, SLIDER_R_SPACE);
 
-	saved_min_width = SLIDER_WIDTH;
+	saved_min_width = scale_dialog_value(SLIDER_WIDTH);
 	if (use_theme_images(SLIDER_WIDGET))
 		saved_min_height = std::max(static_cast<uint16>(slider_c->h), static_cast<uint16>(thumb->h));
 	else
-		saved_min_height = SLIDER_THUMB_HEIGHT + 2;
+		saved_min_height = scale_dialog_value(SLIDER_THUMB_HEIGHT + 2);
 	
-	readout_x = saved_min_width + SLIDER_LABEL_SPACE;
+	readout_x = saved_min_width + scale_dialog_value(SLIDER_LABEL_SPACE);
 	init_formatted_value();
 }
 
@@ -1803,29 +1820,35 @@ void w_slider::draw(SDL_Surface *s) const
 	} 
 	else
 	{
-		SDL_Rect r = {rect.x, rect.y + (saved_min_height - SLIDER_TROUGH_HEIGHT) / 2 + get_theme_space(SLIDER_WIDGET, SLIDER_T_SPACE), SLIDER_WIDTH, SLIDER_TROUGH_HEIGHT};
+		const int trough_height = scale_dialog_value(SLIDER_TROUGH_HEIGHT);
+		const int thumb_height = scale_dialog_value(SLIDER_THUMB_HEIGHT);
+		const int border = scale_dialog_value(1);
+		SDL_Rect r = {rect.x,
+			static_cast<Sint16>(rect.y + (saved_min_height - trough_height) / 2 +
+				get_theme_space(SLIDER_WIDGET, SLIDER_T_SPACE)),
+			scale_dialog_value(SLIDER_WIDTH), static_cast<Uint16>(trough_height)};
 		uint32 pixel = get_theme_color(SLIDER_WIDGET, DEFAULT_STATE, FRAME_COLOR);
 		draw_rectangle(s, &r, pixel);
 
 		pixel = get_theme_color(SLIDER_WIDGET, DEFAULT_STATE, FOREGROUND_COLOR);
-		r.x = r.x + 1;
-		r.y = r.y + 1;
-		r.w = r.w - 2;
-		r.h = r.h - 2;
+		r.x += border;
+		r.y += border;
+		r.w -= border * 2;
+		r.h -= border * 2;
 		SDL_FillRect(s, &r, pixel);
 
 		pixel = get_theme_color(SLIDER_THUMB, DEFAULT_STATE, FRAME_COLOR);
 		r.x = rect.x + static_cast<Sint16>(thumb_x);
-		r.y = rect.y + (saved_min_height - SLIDER_THUMB_HEIGHT) / 2;
+		r.y = rect.y + (saved_min_height - thumb_height) / 2;
 		r.w = thumb_width();
-		r.h = SLIDER_THUMB_HEIGHT;
+		r.h = thumb_height;
 		draw_rectangle(s, &r, pixel);
 
 		pixel = get_theme_color(SLIDER_THUMB, DEFAULT_STATE, FOREGROUND_COLOR);
-		r.x = r.x + 1;
-		r.y = r.y + 1;
-		r.w = r.w - 2;
-		r.h = r.h - 2;
+		r.x += border;
+		r.y += border;
+		r.w -= border * 2;
+		r.h -= border * 2;
 		SDL_FillRect(s, &r, pixel);
 		
 	}
@@ -1899,7 +1922,7 @@ int w_slider::thumb_width() const
 	if (use_theme_images(SLIDER_WIDGET))
 		return thumb->w;
 	else
-		return SLIDER_THUMB_WIDTH;
+		return scale_dialog_value(SLIDER_THUMB_WIDTH);
 }
 
 std::string w_slider::formatted_value()
@@ -1942,7 +1965,7 @@ std::string w_percentage_slider::formatted_value()
  *  List selection
  */
 
-w_list_base::w_list_base(uint16 width, size_t lines, size_t /*sel*/) : widget(ITEM_WIDGET), selection(0), num_items(0), shown_items(lines), thumb_dragging(false), top_item(0)
+w_list_base::w_list_base(uint16 width, size_t lines, size_t /*sel*/) : widget(ITEM_WIDGET), selection(0), num_items(0), shown_items(lines), top_item(0), thumb_dragging(false), show_scrollbar(true)
 {
 	rect.w = width;
 	rect.h = item_height() * static_cast<uint16>(shown_items) + get_theme_space(LIST_WIDGET, T_SPACE) + get_theme_space(LIST_WIDGET, B_SPACE);
@@ -2007,14 +2030,17 @@ void w_list_base::draw(SDL_Surface *s) const
 		draw_image(s, frame_b, x + static_cast<int16>(frame_bl->w), y + rect.h - static_cast<int16>(frame_b->h));
 		draw_image(s, frame_br, x + static_cast<int16>(frame_bl->w) + static_cast<int16>(frame_b->w), y + static_cast<int16>(frame_tr->h) + static_cast<int16>(frame_r->h));
 
-		// Draw thumb
-		x = rect.x + trough_rect.x;
-		y = rect.y + thumb_y;
-		draw_image(s, thumb_t, x, y);
-		draw_image(s, thumb_tc, x, y = y + static_cast<int16>(thumb_t->h));
-		draw_image(s, thumb_c, x, y = y + static_cast<int16>(thumb_tc->h));
-		draw_image(s, thumb_bc, x, y = y + static_cast<int16>(thumb_c->h));
-		draw_image(s, thumb_b, x, y = y + static_cast<int16>(thumb_bc->h));
+		// A list that already shows every item does not need a scrollbar.
+		if (show_scrollbar && num_items > shown_items)
+		{
+			x = rect.x + trough_rect.x;
+			y = rect.y + thumb_y;
+			draw_image(s, thumb_t, x, y);
+			draw_image(s, thumb_tc, x, y = y + static_cast<int16>(thumb_t->h));
+			draw_image(s, thumb_c, x, y = y + static_cast<int16>(thumb_tc->h));
+			draw_image(s, thumb_bc, x, y = y + static_cast<int16>(thumb_c->h));
+			draw_image(s, thumb_b, x, y = y + static_cast<int16>(thumb_bc->h));
+		}
 		
 	}
 	else
@@ -2022,28 +2048,31 @@ void w_list_base::draw(SDL_Surface *s) const
 		uint32 pixel = get_theme_color(LIST_WIDGET, DEFAULT_STATE, FRAME_COLOR);
 		draw_rectangle(s, &rect, pixel);
 
-		SDL_Rect real_trough = { rect.x + trough_rect.x, rect.y + trough_rect.y, trough_rect.w, trough_rect.h };
-		draw_rectangle(s, &real_trough, pixel);
-		real_trough.x = real_trough.x + 1;
-		real_trough.y = real_trough.y + 1;
-		real_trough.w = real_trough.w - 2;
-		real_trough.h = real_trough.h - 2;
-		if (use_theme_color(LIST_THUMB, BACKGROUND_COLOR))
+		if (show_scrollbar && num_items > shown_items)
 		{
-			pixel = get_theme_color(LIST_THUMB, DEFAULT_STATE, BACKGROUND_COLOR);
-			SDL_FillRect(s, &real_trough, pixel);
-		}
+			SDL_Rect real_trough = { rect.x + trough_rect.x, rect.y + trough_rect.y, trough_rect.w, trough_rect.h };
+			draw_rectangle(s, &real_trough, pixel);
+			real_trough.x = real_trough.x + 1;
+			real_trough.y = real_trough.y + 1;
+			real_trough.w = real_trough.w - 2;
+			real_trough.h = real_trough.h - 2;
+			if (use_theme_color(LIST_THUMB, BACKGROUND_COLOR))
+			{
+				pixel = get_theme_color(LIST_THUMB, DEFAULT_STATE, BACKGROUND_COLOR);
+				SDL_FillRect(s, &real_trough, pixel);
+			}
 
-		pixel = get_theme_color(LIST_THUMB, DEFAULT_STATE, FRAME_COLOR);
-		SDL_Rect thumb_rect = { rect.x + trough_rect.x, rect.y + thumb_y, trough_rect.w, thumb_t->h + thumb_tc->h + thumb_c->h + thumb_bc->h + thumb_b->h};
-		draw_rectangle(s, &thumb_rect, pixel);
+			pixel = get_theme_color(LIST_THUMB, DEFAULT_STATE, FRAME_COLOR);
+			SDL_Rect thumb_rect = { rect.x + trough_rect.x, rect.y + thumb_y, trough_rect.w, thumb_t->h + thumb_tc->h + thumb_c->h + thumb_bc->h + thumb_b->h};
+			draw_rectangle(s, &thumb_rect, pixel);
 		
-		pixel = get_theme_color(LIST_THUMB, DEFAULT_STATE, FOREGROUND_COLOR);
-		thumb_rect.x = thumb_rect.x + 1;
-		thumb_rect.y = thumb_rect.y + 1;
-		thumb_rect.w = thumb_rect.w - 2;
-		thumb_rect.h = thumb_rect.h - 2;
-		SDL_FillRect(s, &thumb_rect, pixel);
+			pixel = get_theme_color(LIST_THUMB, DEFAULT_STATE, FOREGROUND_COLOR);
+			thumb_rect.x = thumb_rect.x + 1;
+			thumb_rect.y = thumb_rect.y + 1;
+			thumb_rect.w = thumb_rect.w - 2;
+			thumb_rect.h = thumb_rect.h - 2;
+			SDL_FillRect(s, &thumb_rect, pixel);
+		}
 		
 	}
 		
@@ -2089,7 +2118,8 @@ void w_list_base::place(const SDL_Rect& r, placement_flags flags)
 
 void w_list_base::click(int x, int y)
 {
-	if (x >= trough_rect.x && x < trough_rect.x + trough_rect.w
+	if (show_scrollbar && num_items > shown_items &&
+		x >= trough_rect.x && x < trough_rect.x + trough_rect.w
 //	 && y >= trough_rect.y && y < trough_rect.y + trough_rect.h) {
 	    && y >= thumb_y && y <= thumb_y + thumb_height) {
 		thumb_dragging = dirty = true;
@@ -2154,6 +2184,8 @@ void w_list_base::event(SDL_Event &e)
 			dirty = true;
 		}
 	} else if (e.type == SDL_MOUSEWHEEL) {
+		if (num_items <= shown_items)
+			return;
 		int amt = e.wheel.y * -1 * kListScrollSpeed;
 		if (amt < 0) {
 			amt = amt * -1;
@@ -2279,9 +2311,64 @@ w_levels::item_selected(void)
 	parent->quit(0);
 }
 
+void w_levels::mouse_move(int x, int y)
+{
+	parent->activate_widget(this);
+	w_list_base::mouse_move(x, y);
+	parent->draw_dirty_widgets();
+}
+
+void w_levels::draw(SDL_Surface *surface) const
+{
+	w_list<entry_point>::draw(surface);
+	if (!show_scrollbar || num_items <= shown_items)
+		return;
+
+	const int track_width = scale_dialog_value(8);
+	SDL_Rect track = {
+		static_cast<Sint16>(rect.x + trough_rect.x +
+			(trough_rect.w - track_width) / 2),
+		static_cast<Sint16>(rect.y + trough_rect.y),
+		static_cast<Uint16>(track_width),
+		trough_rect.h
+	};
+	draw_rectangle(surface, &track,
+		SDL_MapRGB(surface->format, 63, 63, 63));
+
+	const int visible_thumb_height = MAX(scale_dialog_value(18),
+		static_cast<int>(track.h) * static_cast<int>(shown_items) /
+		static_cast<int>(num_items));
+	const int travel = track.h - visible_thumb_height;
+	const int range = num_items - shown_items;
+	SDL_Rect visible_thumb = {
+		track.x,
+		static_cast<Sint16>(track.y + (range > 0 ?
+			travel * static_cast<int>(top_item) / range : 0)),
+		track.w,
+		static_cast<Uint16>(visible_thumb_height)
+	};
+	SDL_FillRect(surface, &visible_thumb,
+		SDL_MapRGB(surface->format, 155, 79, 32));
+}
+
+void w_levels::place(const SDL_Rect& placement,
+	placement_flags flags)
+{
+	w_list_base::place(placement, flags);
+	// Keep the scrollbar safely inside the tab panel's clipping edge.
+	trough_rect.x = rect.w - scale_dialog_value(28);
+	trough_rect.y = scale_dialog_value(4);
+	trough_rect.w = scale_dialog_value(14);
+	trough_rect.h = rect.h - scale_dialog_value(8);
+	set_top_item(top_item);
+}
+
 void
 w_levels::draw_item(vector<entry_point>::const_iterator i, SDL_Surface *s, int16 x, int16 y, uint16 width, bool selected) const
 {
+	const int16 margin = scale_dialog_value(48);
+	x += margin;
+	width = width > margin * 2 ? width - margin * 2 : width;
 	y = y + font->get_ascent();
 	char str[256];
 
@@ -2940,6 +3027,3 @@ void PlayersInGameWidget::redraw ()
 	m_pig->update_display ();
 	m_pig->get_owning_dialog ()->draw_dirty_widgets ();
 }
-
-
-

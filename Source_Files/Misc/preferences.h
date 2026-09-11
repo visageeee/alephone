@@ -100,6 +100,7 @@ struct graphics_preferences_data
     int16 movie_export_audio_quality;
 
 	int16 ephemera_quality;
+	bool pickup_flash;
 };
 
 enum {

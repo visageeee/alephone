@@ -100,6 +100,7 @@ public:
 	int min_height();
 	int min_width();
 	int tabs() { return m_tabs.size(); };
+	int current_tab() const { return m_tab; }
 	void choose_tab(int new_tab);
 	void place(const SDL_Rect &r, placement_flags flags = kDefault);
 	bool visible() { return widget_placer::visible(); }
@@ -113,11 +114,12 @@ class table_placer : public widget_placer
 {
 public:
 	enum { kSpace = 4 };
-	table_placer(int columns, int space = kSpace, bool balance_widths = false) : widget_placer(), m_add(0), m_columns(columns), m_space(space), m_balance_widths(balance_widths) { m_col_flags.resize(m_columns); m_col_min_widths.resize(m_columns);}
+	table_placer(int columns, int space = kSpace, bool balance_widths = false) : widget_placer(), m_add(0), m_columns(columns), m_space(space), m_row_space(0), m_balance_widths(balance_widths) { m_col_flags.resize(m_columns); m_col_min_widths.resize(m_columns);}
 	void add(placeable *p, bool assume_ownership = false);
 	void add_row(placeable *p, bool assume_ownership = false);
 	void col_flags(int col, placement_flags flags = kDefault) { m_col_flags[col] = flags; }
 	void col_min_width(int col, int min_width) { m_col_min_widths[col] = min_width; }
+	void row_space(int space) { m_row_space = space; }
 	void dual_add(widget *w, dialog& d);
 	void dual_add_row(widget *w, dialog& d);
 	int min_height();
@@ -130,6 +132,7 @@ private:
 	int m_add; // column to add next widget to
 	int m_columns; // number of columns
 	int m_space;
+	int m_row_space;
 	bool m_balance_widths;
 	std::vector<std::vector<placeable *> > m_table;
 	std::vector<placement_flags> m_col_flags;
@@ -141,7 +144,7 @@ class vertical_placer : public widget_placer
 {
 public:
 	enum { kSpace = 0 };
-	vertical_placer(int space = kSpace) : m_space(space), widget_placer(), m_min_width(0), m_add_flags(kDefault) { }
+	vertical_placer(int space = kSpace) : m_space(space), widget_placer(), m_min_width(0), m_add_flags(kDefault), m_center_vertically(false) { }
 
 	void add(placeable *p, bool assume_ownership = false);
 	void add_flags(placement_flags flags = kDefault) { m_add_flags = flags; }
@@ -149,6 +152,7 @@ public:
 	int min_height();
 	int min_width();
 	void min_width(int w) { m_min_width = w; }
+	void center_vertically(bool center = true) { m_center_vertically = center; }
 
 	void place(const SDL_Rect &r, placement_flags flags = kDefault);
 	void visible(bool visible);
@@ -160,6 +164,7 @@ private:
 	int m_min_width;
 	placement_flags m_add_flags;
 	int m_space;
+	bool m_center_vertically;
 };
 
 class horizontal_placer : public widget_placer
@@ -305,6 +310,7 @@ extern void initialize_dialogs();
 extern void shutdown_dialogs();
 
 extern bool load_dialog_theme(bool force_reload = false);
+extern bool load_default_dialog_theme();
 
 extern uint32 get_dialog_player_color(size_t colorIndex); // ZZZ: added
 extern void play_dialog_sound(int which);
@@ -429,6 +435,9 @@ extern SDL_Surface* get_theme_image(int widget_type, int state, int which, int w
 extern bool use_theme_images(int widget_type);
 extern bool use_theme_color(int widget_type, int which);
 extern int get_theme_space(int widget_type, int which = 0);
+extern void set_dialog_render_scale(int scale);
+extern int get_dialog_render_scale();
+extern int scale_dialog_value(int value);
 
 extern void dialog_ok(void *arg);
 extern void dialog_cancel(void *arg);

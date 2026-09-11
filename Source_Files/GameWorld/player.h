@@ -523,6 +523,7 @@ constexpr new_player_flags
 	new_player_make_local_and_current = new_player_make_local | new_player_make_current;
 
 short new_player(short team, short color, short player_identifier, new_player_flags flags);
+void set_spawn_with_all_weapons(bool enabled);
 void delete_player(short player_number);
 
 void recreate_players_for_new_level(void);

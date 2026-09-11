@@ -77,6 +77,7 @@ Feb 11, 2001 (Loren Petrich):
 #include "weapons.h" /* needed for process_new_item_for_reloading */
 #include "network_games.h"
 #include "InfoTree.h"
+#include "preferences.h"
 
 // LP addition: for the XML stuff
 #include <string.h>
@@ -706,10 +707,13 @@ bool try_and_add_player_item(
 	/* Play the pickup sound */
 	if (success && player_index==current_player_index)
 	{
-		SoundManager::instance()->PlaySound(grabbed_sound_index, nullptr, NONE);
+		SoundManager::instance()->PlaySound(grabbed_sound_index, nullptr, NONE,
+			_normal_frequency, false,
+			sound_preferences->pickup_volume_percent / 100.f);
 	
-		/* Flash screen */
-		start_fade(_fade_bonus);
+		/* Flash screen, unless the player disabled pickup flashes. */
+		if (graphics_preferences->pickup_flash)
+			start_fade(_fade_bonus);
 	}
 
 	return success;

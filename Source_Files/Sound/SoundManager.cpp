@@ -386,7 +386,8 @@ std::shared_ptr<SoundPlayer> SoundManager::PlaySound(short sound_index,
 			     world_location3d *source,
 			     short identifier, // NONE is no identifier and the sound is immediately orphaned
 			     _fixed pitch,
-			     bool soft_rewind)
+			     bool soft_rewind,
+			     float gain)
 {
 	if (sound_index == NONE || !active || OpenALManager::Get()->GetMasterVolume() <= 0 || !LoadSound(sound_index))
 		return std::shared_ptr<SoundPlayer>();
@@ -397,6 +398,13 @@ std::shared_ptr<SoundPlayer> SoundManager::PlaySound(short sound_index,
 	parameters.soft_rewind = soft_rewind;
 	parameters.is_2d = !source;
 	parameters.source_identifier = identifier;
+	if (!source && gain < 1.f)
+	{
+		parameters.stereo_parameters.is_panning = true;
+		parameters.stereo_parameters.gain_global = MAX(0.f, gain);
+		parameters.stereo_parameters.gain_left = MAX(0.f, gain);
+		parameters.stereo_parameters.gain_right = MAX(0.f, gain);
+	}
 
 	if (source) {
 
@@ -712,6 +720,7 @@ SoundManager::Parameters::Parameters() :
 	rate(DEFAULT_RATE),
 	samples(DEFAULT_SAMPLES),
 	music_db(DEFAULT_MUSIC_LEVEL_DB),
+	pickup_volume_percent(100),
 	video_export_volume_db(DEFAULT_VIDEO_EXPORT_VOLUME_DB),
 	channel_type(ChannelType::_stereo)
 {
@@ -727,6 +736,7 @@ bool SoundManager::Parameters::Verify()
 	{
 		volume_db = MAXIMUM_VOLUME_DB;
 	}
+	pickup_volume_percent = PIN(pickup_volume_percent, 0, 100);
 	
 	return true;
 }

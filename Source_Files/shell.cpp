@@ -637,69 +637,220 @@ bool quit_without_saving(void)
 
 const int32 AllPlayableLevels = _single_player_entry_point | _multiplayer_carnage_entry_point | _multiplayer_cooperative_entry_point | _kill_the_man_with_the_ball_entry_point | _king_of_hill_entry_point | _rugby_entry_point | _capture_the_flag_entry_point;
 
+class w_level_difficulty : public widget
+{
+public:
+	explicit w_level_difficulty(size_t selection) :
+		widget(LABEL_WIDGET), m_selection(selection)
+	{
+		saved_min_width = scale_dialog_value(600);
+		saved_min_height = font->get_line_height();
+	}
+
+	void draw(SDL_Surface *surface) const override
+	{
+		const int side_margin = scale_dialog_value(8);
+		int widths[NUMBER_OF_GAME_DIFFICULTY_LEVELS];
+		int total_width = 0;
+		for (int i = 0; i < NUMBER_OF_GAME_DIFFICULTY_LEVELS; ++i)
+		{
+			const char *label = TS_GetCString(kDifficultyLevelsStringSetID, i);
+			widths[i] = text_width(label ? label : "", font, style);
+			total_width += widths[i];
+		}
+		const int gap = MAX(scale_dialog_value(8),
+			(rect.w - side_margin * 2 - total_width) /
+			(NUMBER_OF_GAME_DIFFICULTY_LEVELS - 1));
+		int x = rect.x + side_margin;
+		for (int i = 0; i < NUMBER_OF_GAME_DIFFICULTY_LEVELS; ++i)
+		{
+			const char *label = TS_GetCString(kDifficultyLevelsStringSetID, i);
+			std::string text = label ? label : "";
+			const uint32 color = i == static_cast<int>(m_selection) ?
+				SDL_MapRGB(surface->format, 155, 79, 32) :
+				SDL_MapRGB(surface->format, 255, 255, 255);
+			draw_text(surface, text.c_str(), x,
+				rect.y + font->get_ascent(),
+				color, font, style);
+			x += widths[i] + gap;
+		}
+	}
+
+	void click(int x, int) override
+	{
+		int widths[NUMBER_OF_GAME_DIFFICULTY_LEVELS];
+		int total_width = 0;
+		for (int i = 0; i < NUMBER_OF_GAME_DIFFICULTY_LEVELS; ++i)
+		{
+			const char *label = TS_GetCString(kDifficultyLevelsStringSetID, i);
+			widths[i] = text_width(label ? label : "", font, style);
+			total_width += widths[i];
+		}
+		const int side_margin = scale_dialog_value(8);
+		const int gap = MAX(scale_dialog_value(8),
+			(rect.w - side_margin * 2 - total_width) /
+			(NUMBER_OF_GAME_DIFFICULTY_LEVELS - 1));
+		int left = side_margin;
+		for (int i = 0; i < NUMBER_OF_GAME_DIFFICULTY_LEVELS; ++i)
+		{
+			const int right = left + widths[i] + (i + 1 <
+				NUMBER_OF_GAME_DIFFICULTY_LEVELS ? gap / 2 : 0);
+			if (x <= right)
+			{
+				set_selection(i);
+				return;
+			}
+			left += widths[i] + gap;
+		}
+		set_selection(NUMBER_OF_GAME_DIFFICULTY_LEVELS - 1);
+	}
+
+	void event(SDL_Event& event) override
+	{
+		if (event.type == SDL_KEYDOWN && event.key.keysym.sym == SDLK_LEFT)
+		{
+			set_selection(m_selection == 0 ?
+				NUMBER_OF_GAME_DIFFICULTY_LEVELS - 1 : m_selection - 1);
+			event.type = SDL_LASTEVENT;
+		}
+		else if (event.type == SDL_KEYDOWN && event.key.keysym.sym == SDLK_RIGHT)
+		{
+			set_selection((m_selection + 1) % NUMBER_OF_GAME_DIFFICULTY_LEVELS);
+			event.type = SDL_LASTEVENT;
+		}
+		else if (event.type == SDL_CONTROLLERBUTTONDOWN &&
+			event.cbutton.button == SDL_CONTROLLER_BUTTON_DPAD_LEFT)
+		{
+			set_selection(m_selection == 0 ?
+				NUMBER_OF_GAME_DIFFICULTY_LEVELS - 1 : m_selection - 1);
+			event.type = SDL_LASTEVENT;
+		}
+		else if (event.type == SDL_CONTROLLERBUTTONDOWN &&
+			event.cbutton.button == SDL_CONTROLLER_BUTTON_DPAD_RIGHT)
+		{
+			set_selection((m_selection + 1) % NUMBER_OF_GAME_DIFFICULTY_LEVELS);
+			event.type = SDL_LASTEVENT;
+		}
+	}
+
+	size_t get_selection() const { return m_selection; }
+
+private:
+	void set_selection(size_t selection)
+	{
+		m_selection = selection;
+		dirty = true;
+		if (get_owning_dialog()) get_owning_dialog()->draw_dirty_widgets();
+	}
+
+	size_t m_selection;
+};
+
 short get_level_number_from_user(void)
 {
+	// The level picker is part of Sprintathon's interface, so scenarios and
+	// HUD plugins must not replace its fonts, colors, spacing, or controls.
+	struct level_dialog_theme_guard
+	{
+		level_dialog_theme_guard() { load_default_dialog_theme(); }
+		~level_dialog_theme_guard() { load_dialog_theme(true); }
+	} theme_guard;
+	struct level_dialog_resolution_guard
+	{
+		level_dialog_resolution_guard() { set_dialog_render_scale(2); }
+		~level_dialog_resolution_guard() { set_dialog_render_scale(1); }
+	} resolution_guard;
+
 	// Get levels
-	vector<entry_point> levels;
-	if (!get_entry_points(levels, AllPlayableLevels)) {
+	vector<entry_point> singleplayer_levels;
+	vector<entry_point> multiplayer_levels;
+	if (!get_entry_points(singleplayer_levels, _single_player_entry_point)) {
 		entry_point dummy;
 		dummy.level_number = 0;
 		strcpy(dummy.level_name, "Untitled Level");
-		levels.push_back(dummy);
+		singleplayer_levels.push_back(dummy);
+	}
+	// Co-op flags are commonly attached to every campaign level. Use only
+	// competitive entry points so this tab does not duplicate the campaign.
+	get_entry_points(multiplayer_levels,
+		_multiplayer_carnage_entry_point |
+		_kill_the_man_with_the_ball_entry_point |
+		_king_of_hill_entry_point | _defense_entry_point |
+		_rugby_entry_point | _capture_the_flag_entry_point);
+	const bool has_multiplayer_levels = !multiplayer_levels.empty();
+	if (multiplayer_levels.empty())
+	{
+		entry_point unavailable;
+		unavailable.level_number = NONE;
+		strcpy(unavailable.level_name, "No dedicated multiplayer levels");
+		multiplayer_levels.push_back(unavailable);
 	}
 
 	// Create dialog
 	dialog d;
-	vertical_placer *placer = new vertical_placer;
-	if (vidmasterStringSetID != -1 && TS_IsPresent(vidmasterStringSetID) && TS_CountStrings(vidmasterStringSetID) > 0) {
-		// if we there's a stringset present for it, load the message from there
-		int num_lines = TS_CountStrings(vidmasterStringSetID);
+	vertical_placer *placer = new vertical_placer(scale_dialog_value(4));
+	placer->dual_add(new w_static_text("Choose Level", LABEL_WIDGET), d);
 
-		for (size_t i = 0; i < num_lines; i++) {
-			bool message_font_title_color = true;
-			const char *string = TS_GetCString(vidmasterStringSetID, i);
-			if (!strncmp(string, "[QUOTE]", 7)) {
-				string = string + 7;
-				message_font_title_color = false;
-			}
-			if (!strlen(string))
-				placer->add(new w_spacer(), true);
-			else if (message_font_title_color)
-				placer->dual_add(new w_static_text(string), d);
-			else
-				placer->dual_add(new w_static_text(string), d);
-		}
+	tab_placer *level_tabs = new tab_placer;
+	const vector<string> level_tab_labels = {"SINGLEPLAYER", "MULTIPLAYER"};
+	placer->dual_add(new w_tab(level_tab_labels, level_tabs), d);
+	const size_t visible_singleplayer = MIN(
+		static_cast<size_t>(17), singleplayer_levels.size());
+	const size_t visible_multiplayer = MIN(
+		static_cast<size_t>(17), multiplayer_levels.size());
+	w_levels *singleplayer_w = new w_levels(singleplayer_levels, &d,
+		scale_dialog_value(600), visible_singleplayer, 0, true);
+	w_levels *multiplayer_w = new w_levels(multiplayer_levels, &d,
+		scale_dialog_value(600), visible_multiplayer, 0, has_multiplayer_levels);
+	multiplayer_w->set_enabled(has_multiplayer_levels);
+	singleplayer_w->set_offset(vidmasterLevelOffset);
+	multiplayer_w->set_offset(vidmasterLevelOffset);
+	level_tabs->dual_add(singleplayer_w, d);
+	level_tabs->dual_add(multiplayer_w, d);
+	placer->add(level_tabs, true);
+	placer->dual_add(new w_static_text("Difficulty", LABEL_WIDGET), d);
+	w_level_difficulty *difficulty_w =
+		new w_level_difficulty(player_preferences->difficulty_level);
+	placer->dual_add(difficulty_w, d);
+	horizontal_placer *all_weapons_row =
+		new horizontal_placer(scale_dialog_value(8));
+	all_weapons_row->dual_add(
+		new w_static_text("Spawn with all weapons (no ammo)", ITEM_WIDGET), d);
+	w_toggle *all_weapons_w = new w_toggle(false);
+	all_weapons_row->dual_add(all_weapons_w, d);
+	vertical_placer *all_weapons_column = new vertical_placer;
+	all_weapons_column->add(new w_spacer(scale_dialog_value(5)), true);
+	all_weapons_column->add(all_weapons_row, true);
+	horizontal_placer *buttons =
+		new horizontal_placer(scale_dialog_value(20));
+	buttons->dual_add(new w_button("START LEVEL", dialog_ok, &d), d);
+	buttons->dual_add(new w_button("CANCEL", dialog_cancel, &d), d);
+	horizontal_placer *footer =
+		new horizontal_placer(scale_dialog_value(28));
+	footer->add(all_weapons_column, true);
+	footer->add(buttons, true);
+	placer->add(new w_spacer(scale_dialog_value(6)), true);
+	placer->add(footer, true);
+	placer->add(new w_spacer(scale_dialog_value(16)), true);
 
-	} else {
-		// no stringset or no strings in stringset - use default message
-		placer->dual_add(new w_static_text("Before proceeding any further, you"), d);
-		placer->dual_add(new w_static_text ("must take the oath of the vidmaster:"), d);
-		placer->add(new w_spacer(), true);
-		placer->dual_add(new w_static_text("\xd2I pledge to punch all switches,"), d);
-		placer->dual_add(new w_static_text("to never shoot where I could use grenades,"), d);
-		placer->dual_add(new w_static_text("to admit the existence of no level"), d);
-		placer->dual_add(new w_static_text("except Total Carnage,"), d);
-		placer->dual_add(new w_static_text("to never use Caps Lock as my \xd4run\xd5 key,"), d);
-		placer->dual_add(new w_static_text("and to never, ever, leave a single Bob alive.\xd3"), d);
-	}
-
-	placer->add(new w_spacer(), true);
-	placer->dual_add(new w_static_text("Start at level:"), d);
-
-	w_levels *level_w = new w_levels(levels, &d);
-	level_w->set_offset(vidmasterLevelOffset);
-	placer->dual_add(level_w, d);
-	placer->add(new w_spacer(), true);
-	placer->dual_add(new w_button("CANCEL", dialog_cancel, &d), d);
-
-	d.activate_widget(level_w);
+	d.activate_widget(singleplayer_w);
 	d.set_widget_placer(placer);
 
 	// Run dialog
 	short level;
 	if (d.run() == 0)		// OK
+	{
 		// Should do noncontiguous map files OK
-		level = levels[level_w->get_selection()].level_number;
+		if (level_tabs->current_tab() == 0)
+			level = singleplayer_levels[
+				singleplayer_w->get_selection()].level_number;
+		else
+			level = multiplayer_levels[
+				multiplayer_w->get_selection()].level_number;
+		player_preferences->difficulty_level = difficulty_w->get_selection();
+		set_spawn_with_all_weapons(all_weapons_w->get_selection() != 0);
+		write_preferences();
+	}
 	else
 		level = NONE;
 

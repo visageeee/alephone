@@ -721,6 +721,7 @@ public:
 	void mouse_move(int x, int y);
 	void click(int x, int y);
 	void event(SDL_Event &e);
+	void set_scrollbar_visible(bool visible) { show_scrollbar = visible; dirty = true; }
 
 	size_t get_selection(void) {return selection;}
 
@@ -747,6 +748,7 @@ protected:
 	size_t top_item;		// Number of first visible item
 
 	bool thumb_dragging;	// Flag: currently dragging scroll bar thumb
+	bool show_scrollbar;	// Whether this list displays and handles its scrollbar
 	SDL_Rect trough_rect;	// Dimensions of trough
 	uint16 thumb_height;		// Height of thumb
 	uint16 min_thumb_height;	// Minimal height of thumb
@@ -808,6 +810,9 @@ public:
 	size_t inNumLines, size_t inSelectedItem, bool in_show_level_numbers);
 
 	void item_selected(void);
+	void mouse_move(int x, int y) override;
+	void draw(SDL_Surface *surface) const override;
+	void place(const SDL_Rect& rect, placement_flags flags) override;
 
 	void draw_item(vector<entry_point>::const_iterator i, SDL_Surface *s, int16 x, int16 y, uint16 width, bool selected) const;
 
