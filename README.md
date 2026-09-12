@@ -25,7 +25,7 @@ All gameplay additions can be toggled from the **Sprintathon** preferences panel
 - Modernized swimming and surface movement
 - Water and dry ledge-grabbing
 - Optional global fog
-- Revamped preferences panel and Level Select
+- Revamped Preferences panel and Level Select
 
 Movement features can be enabled or disabled individually, allowing Sprintathon to range from mostly traditional Marathon movement to the complete modernized movement set.
 
