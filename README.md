@@ -10,7 +10,7 @@ Sacrilegious features include JUMPING, CROUCHING, SPRINTING, SWIMMING ABOVE THE 
 
 ## Features
 
-All gameplay additions can be configured from the **Sprintathon** preferences panel.
+All gameplay additions can be toggled from the **Sprintathon** preferences panel.
 
 - Full unrestricted mouselook
 - Smoother mouse aiming
