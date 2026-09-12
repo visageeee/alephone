@@ -40,6 +40,7 @@
 static bool mouse_active = false;
 static uint8 button_mask = 0;		// Mask of enabled buttons
 static fixed_yaw_pitch mouselook_delta = {0, 0};
+static fixed_yaw_pitch previous_sprintathon_mouselook_delta = {0, 0};
 static _fixed snapshot_delta_scrollwheel;
 static int snapshot_delta_x, snapshot_delta_y;
 
@@ -57,6 +58,7 @@ void enter_mouse(short type)
 		SDL_SetRelativeMouseMode(SDL_TRUE);
 		mouse_active = true;
 		mouselook_delta = {0, 0};
+		previous_sprintathon_mouselook_delta = {0, 0};
 		snapshot_delta_scrollwheel = 0;
 		snapshot_delta_x = snapshot_delta_y = 0;
 		button_mask = 0;	// Disable all buttons (so a shot won't be fired if we enter the game with a mouse button down from clicking a GUI widget)
@@ -127,8 +129,27 @@ void mouse_idle(short type)
 		}
 		
 		// Angular deltas
-		const fixed_angle dyaw = static_cast<fixed_angle>(sx * dx * FIXED_ONE);
-		const fixed_angle dpitch = static_cast<fixed_angle>(sy * dy * FIXED_ONE);
+		fixed_angle dyaw = static_cast<fixed_angle>(sx * dx * FIXED_ONE);
+		fixed_angle dpitch = static_cast<fixed_angle>(sy * dy * FIXED_ONE);
+
+		/*
+		 * Soften changes in mouse velocity between 30 Hz simulation samples.
+		 * This short, total-preserving filter works with render interpolation
+		 * without giving Sprintathon mouselook a long floaty tail.
+		 */
+		if (input_preferences->sprintathon_enabled)
+		{
+			const fixed_yaw_pitch raw_delta = {dyaw, dpitch};
+			dyaw = static_cast<fixed_angle>(
+				(3LL*dyaw + previous_sprintathon_mouselook_delta.yaw)/4);
+			dpitch = static_cast<fixed_angle>(
+				(3LL*dpitch + previous_sprintathon_mouselook_delta.pitch)/4);
+			previous_sprintathon_mouselook_delta = raw_delta;
+		}
+		else
+		{
+			previous_sprintathon_mouselook_delta = {0, 0};
+		}
 		
 		// Push mouselook delta
 		mouselook_delta = {dyaw, dpitch};
