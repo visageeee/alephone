@@ -8,6 +8,7 @@
 
 #include "OGL_Headers.h"
 
+#include <algorithm>
 #include <iostream>
 
 #include "RenderRasterize_Shader.h"
@@ -1585,19 +1586,50 @@ void RenderRasterize_Shader::render_viewer_sprite_layer(RenderStep renderStep)
 				: 0.0f;
 
 		sprint_sway_amount +=
-			(sprint_sway_target - sprint_sway_amount) * 0.12f;
+			(sprint_sway_target - sprint_sway_amount) * 0.30f;
 
-		// Time-based motion: approximately 1.25 swings per second.
-		const float sprint_sway_phase =
-			static_cast<float>(machine_tick_count()) * 0.008f;
+		// Follow the physics step phase so the swing peaks stay locked to
+		// sprint footsteps instead of drifting with rendering time.
+		const float sprint_sway_phase = current_player
+			? static_cast<float>(current_player->variables.step_phase) *
+				6.283185307f / FIXED_ONE
+			: 0.0f;
 
 		const short sprint_sway_offset = static_cast<short>(
 			std::sin(sprint_sway_phase) *
-			(static_cast<float>(view->screen_width) / 30.0f) *
+			(static_cast<float>(view->screen_width) / 32.0f) *
 			sprint_sway_amount);
 
 		rect.x0 += sprint_sway_offset;
 		rect.x1 += sprint_sway_offset;
+		}
+
+		/*
+		 * Scaling and sway are applied after the scenario's weapon origin,
+		 * so a sprite intentionally pinned to an edge can otherwise drift far
+		 * enough inward to expose the hard boundary of its bitmap. Clamp these
+		 * side-mounted sprites last and retain a small off-screen bleed. Doing
+		 * this here also accounts for every per-frame sway contribution.
+		 */
+		if (display_data.side_mounted &&
+			display_data.horizontal_positioning_mode == _position_center)
+		{
+			const _fixed side_margin = FIXED_ONE / 8;
+			const int edge_bleed = std::max<int>(2, view->screen_width / 128);
+			if (display_data.horizontal_position < FIXED_ONE_HALF - side_margin &&
+				rect.x0 > -edge_bleed)
+			{
+				const int offset = -edge_bleed - rect.x0;
+				rect.x0 += offset;
+				rect.x1 += offset;
+			}
+			else if (display_data.horizontal_position > FIXED_ONE_HALF + side_margin &&
+				rect.x1 < view->screen_width + edge_bleed)
+			{
+				const int offset = view->screen_width + edge_bleed - rect.x1;
+				rect.x0 += offset;
+				rect.x1 += offset;
+			}
 		}
 
 		/* set rectangle bitmap and shading table */
@@ -1629,7 +1661,8 @@ void RenderRasterize_Shader::render_viewer_sprite_layer(RenderStep renderStep)
                 /* make the weapon reflect the owner’s transfer mode */
 		instantiate_rectangle_transfer_mode(view, &rect, display_data.transfer_mode, display_data.transfer_phase);
 
-                render_viewer_sprite(rect, renderStep);
+                render_viewer_sprite(rect, renderStep,
+			display_data.rotation_degrees);
         }
 
         Shader::disable();
@@ -1653,7 +1686,8 @@ struct ExtendedVertexData
 	GLfloat GlowColor[3];
 };
 
-void RenderRasterize_Shader::render_viewer_sprite(rectangle_definition& RenderRectangle, RenderStep renderStep)
+void RenderRasterize_Shader::render_viewer_sprite(rectangle_definition& RenderRectangle,
+	RenderStep renderStep, float rotation_degrees)
 {
 	// Find texture coordinates
 	ExtendedVertexData ExtendedVertexList[4];
@@ -1718,6 +1752,43 @@ void RenderRasterize_Shader::render_viewer_sprite(rectangle_definition& RenderRe
 	ExtendedVertexList[3].Vertex[2] = ExtendedVertexList[2].Vertex[2];
 	ExtendedVertexList[3].TexCoord[0] = ExtendedVertexList[2].TexCoord[0];
 	ExtendedVertexList[3].TexCoord[1] = ExtendedVertexList[0].TexCoord[1];
+
+	if (rotation_degrees != 0.0f)
+	{
+		constexpr double pi = 3.14159265358979323846;
+		const double radians = rotation_degrees * pi / 180.0;
+		const double cosine = std::cos(radians);
+		const double sine = std::sin(radians);
+		const double pivot_x =
+			(RenderRectangle.x0 + RenderRectangle.x1) * 0.5;
+		const double pivot_y = RenderRectangle.y1;
+		for (auto& vertex : ExtendedVertexList)
+		{
+			const double x = vertex.Vertex[0] - pivot_x;
+			const double y = vertex.Vertex[1] - pivot_y;
+			vertex.Vertex[0] = pivot_x + x * cosine - y * sine;
+			vertex.Vertex[1] = pivot_y + x * sine + y * cosine;
+		}
+
+		/*
+		 * Rotation raises one of the quad's bottom corners. If the original
+		 * sprite reached the bottom of the viewport, lower the rotated quad
+		 * just enough to keep both corners off-screen and avoid an empty wedge.
+		 */
+		if (RenderRectangle.y1 >= RenderRectangle.clip_bottom)
+		{
+			const double lowest_bottom_edge = std::min(
+				ExtendedVertexList[2].Vertex[1],
+				ExtendedVertexList[3].Vertex[1]);
+			if (lowest_bottom_edge < RenderRectangle.clip_bottom)
+			{
+				const double vertical_offset =
+					RenderRectangle.clip_bottom - lowest_bottom_edge + 1.0;
+				for (auto& vertex : ExtendedVertexList)
+					vertex.Vertex[1] += vertical_offset;
+			}
+		}
+	}
 
         if(TMgr->IsBlended() || TMgr->TransferMode == _tinted_transfer) {
 		glEnable(GL_BLEND);

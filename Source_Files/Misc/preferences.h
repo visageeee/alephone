@@ -155,6 +155,13 @@ enum SoloProfileType {
 	NUMBER_OF_SOLO_PROFILE_TYPES
 };
 
+enum WeaponHandedness {
+	_weapon_hand_left,
+	_weapon_hand_center,
+	_weapon_hand_right,
+	NUMBER_OF_WEAPON_HAND_OPTIONS
+};
+
 struct player_preferences_data
 {
 	char name[PREFERENCES_NAME_LENGTH+1];
@@ -164,6 +171,7 @@ struct player_preferences_data
 	int16 difficulty_level;
 	bool background_music_on;
 	bool crosshairs_active;
+	int16 weapon_hand;
 	struct ChaseCamData ChaseCam;
 	struct CrosshairData Crosshairs;
 
@@ -240,6 +248,8 @@ struct input_preferences_data
 	bool sprintathon_wall_jump;
 	bool sprintathon_swimming;
 	bool sprintathon_ledge_grab;
+	bool sprintathon_footsteps;
+	int16 sprintathon_footstep_volume_percent;
 	
 	bool controller_analog;
 	bool controller_aim_inverted;

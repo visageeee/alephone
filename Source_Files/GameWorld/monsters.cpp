@@ -106,6 +106,7 @@ Jan 12, 2003 (Loren Petrich)
 #include "monsters.h"
 #include "projectiles.h"
 #include "player.h"
+#include "preferences.h"
 #include "platforms.h"
 #include "scenery.h"
 #include "SoundManager.h"
@@ -1529,10 +1530,14 @@ void damage_monster(
 	world_distance external_velocity= 0;
 	bool vertical_component= false;
 
-	if (!(definition->immunities&FLAG(damage->type)))
+	const bool universal_sprintathon_damage =
+		(damage->flags&_sprintathon_damage) != 0;
+	if (universal_sprintathon_damage ||
+		!(definition->immunities&FLAG(damage->type)))
 	{
 		// double damage for weaknesses
-		if (definition->weaknesses&FLAG(damage->type)) delta_vitality<<= 1;
+		if (!universal_sprintathon_damage &&
+			(definition->weaknesses&FLAG(damage->type))) delta_vitality<<= 1;
 		
 		// if this player was shot by a friendly, make him apologise
 		if (aggressor_index!=NONE && get_monster_attitude(aggressor_index, target_index)==_friendly)
@@ -2260,6 +2265,66 @@ static short get_monster_attitude(
 
 static std::map<short, std::set<short> > sprintathon_sweep_hits;
 
+static void sprintathon_play_external_hit_sound(
+	short aggressor_index,
+	const char *source_path,
+	const char *installed_path,
+	float gain = 1.f)
+{
+	if (aggressor_index == NONE ||
+		!SLOT_IS_USED(get_monster_data(aggressor_index)))
+		return;
+
+	monster_data *aggressor = get_monster_data(aggressor_index);
+	if (!MONSTER_IS_PLAYER(aggressor) ||
+		monster_index_to_player_index(aggressor_index) != current_player_index)
+		return;
+
+	FileSpecifier hit_sound(source_path);
+	if (!hit_sound.Exists() &&
+		!hit_sound.SetNameWithPath(installed_path))
+	{
+		hit_sound = FileSpecifier(
+			get_data_path(kPathDefaultData) + "/" + installed_path);
+	}
+
+	if (hit_sound.Exists())
+	{
+		SoundParameters parameters;
+		parameters.stereo_parameters.is_panning = true;
+		parameters.stereo_parameters.gain_global = gain;
+		parameters.stereo_parameters.gain_left = gain;
+		parameters.stereo_parameters.gain_right = gain;
+		SoundManager::instance()->PlayExternalSound(hit_sound, parameters);
+	}
+}
+
+void sprintathon_play_kick_hit_sound(short aggressor_index)
+{
+	sprintathon_play_external_hit_sound(
+		aggressor_index,
+		"snd/kickhit.ogg",
+		"Sprintathon/kickhit.ogg");
+}
+
+void sprintathon_play_wall_kick_sound(short aggressor_index)
+{
+	sprintathon_play_external_hit_sound(
+		aggressor_index,
+		"snd/wallkick.ogg",
+		"Sprintathon/wallkick.ogg");
+}
+
+void sprintathon_play_footstep_sound(short aggressor_index, bool alternate)
+{
+	sprintathon_play_external_hit_sound(
+		aggressor_index,
+		alternate ? "snd/footstep2.ogg" : "snd/footstep.ogg",
+		alternate ? "Sprintathon/footstep2.ogg" :
+			"Sprintathon/footstep.ogg",
+		input_preferences->sprintathon_footstep_volume_percent / 100.f);
+}
+
 void sprintathon_begin_sweep_attack(short aggressor_index)
 {
 	sprintathon_sweep_hits[aggressor_index].clear();
@@ -2279,9 +2344,9 @@ bool sprintathon_slide_attack(
 	// Standard fist damage at half the former 1.5x slide modifier.
 	damage_definition damage = {
 		_damage_fist,
+		_sprintathon_damage,
+		56,
 		0,
-		50,
-		10,
 		damage_scale
 	};
 
@@ -2358,8 +2423,8 @@ bool sprintathon_slide_attack(
 		 * Pass no epicentre to suppress the fist damage type's normal
 		 * knockback. We apply a controlled custom impulse below.
 		 */
-		// Give every newly connected kick its own positional impact sound.
-		play_object_sound(target->object_index, _snd_fist_hitting);
+		// Give every newly connected kick its own universal impact sound.
+		sprintathon_play_kick_hit_sound(aggressor_index);
 
 		damage_monster(
 			target_index,

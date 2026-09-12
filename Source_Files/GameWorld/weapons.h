@@ -92,6 +92,8 @@ struct weapon_display_information
 	_fixed transfer_phase;
 	
 	bool flip_horizontal, flip_vertical;
+	bool side_mounted;
+	float rotation_degrees;
 	
 	// Needed for animated models: which frame in an individual sequence (0, 1, 2, ...)
 	short Frame, NextFrame;
@@ -230,4 +232,3 @@ void parse_mml_weapons(const InfoTree& root);
 void reset_mml_weapons();
 
 #endif
-

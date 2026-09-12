@@ -7,7 +7,7 @@ mml_DATA = Interface_Rects.mml Transparent_Liquids.mml \
   Transparent_Sprites.mml
 
 sprintathondir = $(pkgdatadir)/Sprintathon
-sprintathon_DATA =   $(top_srcdir)/gfx/slidelegs.png   $(top_srcdir)/snd/slide.ogg
+sprintathon_DATA =   $(top_srcdir)/gfx/slidelegs.png   $(top_srcdir)/snd/slide.ogg   $(top_srcdir)/snd/kickhit.ogg   $(top_srcdir)/snd/wallkick.ogg   $(top_srcdir)/snd/footstep.ogg   $(top_srcdir)/snd/footstep2.ogg
 
 EXTRA_DIST = $(mml_DATA) alephone.xml
 

@@ -197,6 +197,8 @@ Jan 17, 2001 (Loren Petrich):
 	Added vertical flipping
 */
 
+#include <algorithm>
+
 
 #ifdef QUICKDRAW_DEBUG
 #include "macintosh_cseries.h"
@@ -1177,19 +1179,44 @@ static void render_viewer_sprite_layer(view_data *view, RasterizerClass *RasPtr)
 				: 0.0f;
 
 		sprint_sway_amount +=
-			(sprint_sway_target - sprint_sway_amount) * 0.12f;
+			(sprint_sway_target - sprint_sway_amount) * 0.30f;
 
-		// Time-based motion: approximately 1.25 swings per second.
-		const float sprint_sway_phase =
-			static_cast<float>(machine_tick_count()) * 0.008f;
+		// Follow the physics step phase so the swing peaks stay locked to
+		// sprint footsteps instead of drifting with rendering time.
+		const float sprint_sway_phase = current_player
+			? static_cast<float>(current_player->variables.step_phase) *
+				6.283185307f / FIXED_ONE
+			: 0.0f;
 
 		const short sprint_sway_offset = static_cast<short>(
 			std::sin(sprint_sway_phase) *
-			(static_cast<float>(view->screen_width) / 30.0f) *
+			(static_cast<float>(view->screen_width) / 32.0f) *
 			sprint_sway_amount);
 
 		textured_rectangle.x0 += sprint_sway_offset;
 		textured_rectangle.x1 += sprint_sway_offset;
+		}
+
+		/* Keep side-mounted weapon bitmaps beyond the screen edge after sway. */
+		if (display_data.side_mounted &&
+			display_data.horizontal_positioning_mode == _position_center)
+		{
+			const _fixed side_margin = FIXED_ONE / 8;
+			const int edge_bleed = std::max<int>(2, view->screen_width / 128);
+			if (display_data.horizontal_position < FIXED_ONE_HALF - side_margin &&
+				textured_rectangle.x0 > -edge_bleed)
+			{
+				const int offset = -edge_bleed - textured_rectangle.x0;
+				textured_rectangle.x0 += offset;
+				textured_rectangle.x1 += offset;
+			}
+			else if (display_data.horizontal_position > FIXED_ONE_HALF + side_margin &&
+				textured_rectangle.x1 < view->screen_width + edge_bleed)
+			{
+				const int offset = view->screen_width + edge_bleed - textured_rectangle.x1;
+				textured_rectangle.x0 += offset;
+				textured_rectangle.x1 += offset;
+			}
 		}
 
 		/* set rectangle bitmap and shading table */

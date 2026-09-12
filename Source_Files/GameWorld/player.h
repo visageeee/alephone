@@ -446,6 +446,8 @@ struct player_data
 	bool wall_kick_rearm_pending;		// wall impact may permit another kick after cooldown
 	uint8 wall_kick_cooldown_ticks;		// delay before another airborne wall kick
 	uint8 flying_kick_oxygen_recharge_delay;	// ticks before positive oxygen recovery resumes
+	uint8 footstep_ticks_remaining;		// speed-dependent local footstep cadence
+	bool footstep_alternate;			// alternate the two footstep samples
 	int16 sprintathon_camera_roll;		// signed visual roll, in engine angle units
 	int16 sprintathon_camera_pitch;		// visual-only pitch offset
 

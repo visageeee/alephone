@@ -792,7 +792,7 @@ void update_players(ActionQueues* inActionQueuesToUse, bool inPredictive)
 			player->slide_ticks_remaining =
 				(TICKS_PER_SECOND * 3) / 4;
 			player->slide_recovery_ticks = 0;
-			player->slide_punch_pending = true;
+			player->slide_punch_pending = false;
 			sprintathon_begin_sweep_attack(player->monster_index);
 
 			if (player_index == current_player_index)

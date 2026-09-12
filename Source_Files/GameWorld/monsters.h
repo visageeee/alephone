@@ -323,6 +323,9 @@ bool sprintathon_slide_attack(
 	const world_point3d *origin,
 	short origin_polygon_index,
 	_fixed damage_scale);
+void sprintathon_play_kick_hit_sound(short aggressor_index);
+void sprintathon_play_wall_kick_sound(short aggressor_index);
+void sprintathon_play_footstep_sound(short aggressor_index, bool alternate);
 
 // Start a fresh slide/kick hit set. Each target can be struck only once
 // until this is called again for the attacking player.

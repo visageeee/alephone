@@ -196,6 +196,8 @@ void initialize_player_physics_variables(
 	player->wall_kick_cooldown_ticks= 0;
 	player->wall_run_jump_cooldown_ticks= 0;
 	player->flying_kick_oxygen_recharge_delay= 0;
+	player->footstep_ticks_remaining= 0;
+	player->footstep_alternate= false;
 	player->sprintathon_camera_roll= 0;
 	player->sprintathon_camera_pitch= 0;
 	
@@ -628,28 +630,36 @@ static void physics_update(
 	// correction vector points away from the wall; projecting it onto the
 	// player's right vector tells us which way the camera should roll.
 	int16 target_wall_run_roll= 0;
-	if (sprintathon && player->sprinting)
+	const bool sprint_wall_running=
+		modern_wall_run && player->sprinting &&
+		(variables->flags&_HORIZONTAL_COLLISION_BIT) &&
+		(variables->flags&_ABOVE_GROUND_BIT) &&
+		!(variables->flags&_FEET_BELOW_MEDIA_BIT) &&
+		(variables->wall_push_i!=0 || variables->wall_push_j!=0);
+	const bool sprint_sway_active=
+		sprintathon && player->sprinting &&
+		(!(variables->flags&_ABOVE_GROUND_BIT) || sprint_wall_running) &&
+		!(variables->flags&_FEET_BELOW_MEDIA_BIT);
+	if (sprint_sway_active)
 	{
-		// A restrained side-to-side running cadence. Use world ticks so the
-		// motion has the same speed at every rendered frame rate.
+		// Use the footstep countdown itself: each sound occurs at an alternating
+		// left/right peak, so cadence changes cannot put the two out of phase.
+		const int16 countdown= std::min<int16>(player->footstep_ticks_remaining, 6);
+		const int16 elapsed= 6-countdown;
 		const angle sprint_sway_phase= NORMALIZE_ANGLE(static_cast<angle>(
-			(static_cast<int64_t>(dynamic_world->tick_count)*FULL_CIRCLE*3)/
-			(2*TICKS_PER_SECOND)));
+			(player->footstep_alternate ? QUARTER_CIRCLE : 3*QUARTER_CIRCLE) +
+			(static_cast<int32>(elapsed)*HALF_CIRCLE)/6));
 		const int16 sprint_sway_amplitude= (FULL_CIRCLE*3)/360;
 		target_wall_run_roll= static_cast<int16>(
 			(sprint_sway_amplitude*sine_table[sprint_sway_phase])>>TRIG_SHIFT);
 	}
-	if (modern_wall_run && player->sprinting &&
-		(variables->flags&_HORIZONTAL_COLLISION_BIT) &&
-		(variables->flags&_ABOVE_GROUND_BIT) &&
-		!(variables->flags&_FEET_BELOW_MEDIA_BIT) &&
-		(variables->wall_push_i!=0 || variables->wall_push_j!=0))
+	if (sprint_wall_running)
 	{
 		const angle facing= FIXED_INTEGERAL_PART(variables->direction);
 		const int64_t side=
 			-static_cast<int64_t>(variables->wall_push_i)*sine_table[facing] +
 			 static_cast<int64_t>(variables->wall_push_j)*cosine_table[facing];
-		const int16 wall_run_roll= (FULL_CIRCLE*7)/360;
+		const int16 wall_run_roll= (FULL_CIRCLE*12)/360;
 		if (side>0) target_wall_run_roll+= wall_run_roll;
 		else if (side<0) target_wall_run_roll-= wall_run_roll;
 	}
@@ -664,6 +674,13 @@ static void physics_update(
 		// A stronger sideways lean and upward tilt during the slide.
 		target_wall_run_roll= (FULL_CIRCLE*9)/360;
 		target_camera_pitch= (FULL_CIRCLE*7)/360;
+	}
+	// Airborne sprint sway disappears on the first airborne tick.
+	if (sprintathon && player->sprinting &&
+		(variables->flags&_ABOVE_GROUND_BIT) && !sprint_wall_running &&
+		target_camera_pitch==0)
+	{
+		player->sprintathon_camera_roll= 0;
 	}
 	const int16 roll_difference= target_wall_run_roll-player->sprintathon_camera_roll;
 	if (roll_difference!=0)
@@ -1079,6 +1096,16 @@ static void physics_update(
 			variables->velocity= std::max<_fixed>(slide_speed,
 				constants->maximum_forward_velocity/3);
 			variables->perpendicular_velocity= 0;
+
+			// Use the built-in Sprintathon sweep directly. Projectile type
+			// numbers differ between game scenarios (notably Marathon 1), so a
+			// synthetic fist projectile can turn into an unrelated weapon shot.
+			sprintathon_slide_attack(
+				player->monster_index,
+				player->facing,
+				&player->camera_location,
+				player->camera_polygon_index,
+				FIXED_ONE/4);
 		}
 		else
 		{
@@ -1096,9 +1123,19 @@ static void physics_update(
 			translate_point2d(&probe_end, WORLD_ONE/3, player->facing);
 			const short probe_line_index= find_line_crossed_leaving_polygon(
 				player_object->polygon, &probe_start, &probe_end);
-			const bool solid_wall_ahead=
-				probe_line_index!=NONE &&
-				LINE_IS_SOLID(get_line_data(probe_line_index));
+			bool solid_wall_ahead= false;
+			if (probe_line_index!=NONE)
+			{
+				const line_data *probe_line= get_line_data(probe_line_index);
+				// Portal lines can still contain a lower wall beneath a ledge or
+				// an upper wall below an overhang. Test the kick height against
+				// the actual vertical opening as well as the line's solid flag.
+				const world_distance kick_height= player_object->location.z+
+					FIXED_TO_WORLD(variables->actual_height/3);
+				solid_wall_ahead= LINE_IS_SOLID(probe_line) ||
+					kick_height<=probe_line->highest_adjacent_floor ||
+					kick_height>=probe_line->lowest_adjacent_ceiling;
+			}
 			if (!(action_flags&_microphone_button))
 			{
 				// Releasing crouch retracts the legs immediately instead of
@@ -1134,8 +1171,7 @@ static void physics_update(
 				// traversal move rather than merely a collision reaction.
 				variables->external_velocity.k= FIXED_ONE/12;
 
-				play_object_sound(
-					player->object_index, _snd_fist_hitting, player_is_local);
+				sprintathon_play_wall_kick_sound(player->monster_index);
 				player->flying_kick_active= false;
 				player->flying_kick_ticks= 0;
 				player->flying_kick_exit_ticks= 8;
@@ -1201,40 +1237,6 @@ static void physics_update(
 			}
 		}
 
-		if (player->slide_punch_pending)
-		{
-			world_point3d origin= player->camera_location;
-			world_point3d destination= origin;
-			translate_point3d(&origin, WORLD_ONE/8,
-				player->facing, player->elevation);
-			destination= origin;
-			translate_point3d(&destination, WORLD_ONE_HALF,
-				player->facing, player->elevation);
-			world_point3d vector;
-			vector.x= destination.x-origin.x;
-			vector.y= destination.y-origin.y;
-			vector.z= destination.z-origin.z;
-			const short slide_projectile_index =
-				new_projectile(
-					&origin,
-					player->camera_polygon_index,
-					&vector,
-					0,
-					_projectile_fist,
-					player->monster_index,
-					_monster_marine,
-					NONE,
-					FIXED_ONE / 8);
-
-			if (slide_projectile_index != NONE)
-			{
-				SET_PROJECTILE_SLIDE_PUNCH_STATUS(
-					get_projectile_data(slide_projectile_index),
-					true);
-			}
-
-			player->slide_punch_pending= false;
-		}
 		if (player->slide_ticks_remaining>0)
 		{
 			player->slide_ticks_remaining--;
@@ -1777,6 +1779,91 @@ static void physics_update(
 		continue to adjust step_phase until it is zero)  if the player is in the air, don’t
 		update phase until he lands. */
 	variables->flags&= (uint16)~_STEP_PERIOD_BIT;
+	/*
+	 * Local first-person footsteps use one universal sample. Cadence follows
+	 * horizontal speed, while states that should not sound like ordinary
+	 * running reset the timer so movement resumes with a prompt first step.
+	 */
+	const _fixed footstep_speed= std::max<_fixed>(
+		std::abs(movement_forward),
+		std::abs(movement_sideways));
+	const _fixed footstep_reference_speed= std::max<_fixed>(
+		1,
+		get_physics_constants_for_model(
+			static_world->physics_model,
+			_run_dont_walk)->maximum_forward_velocity);
+	const bool wall_running_for_footsteps=
+		modern_wall_run && player->sprinting &&
+		(variables->flags&_HORIZONTAL_COLLISION_BIT) &&
+		(variables->flags&_ABOVE_GROUND_BIT) &&
+		(variables->wall_push_i!=0 || variables->wall_push_j!=0);
+	const bool grounded_for_footsteps=
+		!(variables->flags&_ABOVE_GROUND_BIT);
+	const bool directional_input_for_footsteps=
+		(action_flags&_sidestepping) ||
+		((action_flags&_absolute_position_mode)
+			? GET_ABSOLUTE_POSITION(action_flags)!=MAXIMUM_ABSOLUTE_POSITION/2
+			: (action_flags&_moving));
+	const bool footsteps_active=
+		player_is_local && sprintathon &&
+		directional_input_for_footsteps &&
+		(grounded_for_footsteps || wall_running_for_footsteps) &&
+		!(variables->flags&_FEET_BELOW_MEDIA_BIT) &&
+		!PLAYER_IS_DEAD(player) &&
+		player->slide_ticks_remaining==0 &&
+		!player->flying_kick_active &&
+		player->flying_kick_landing_ticks==0 &&
+		!(action_flags&_microphone_button) &&
+		footstep_speed>footstep_reference_speed/8;
+	_fixed synchronized_movement_step_phase= -1;
+
+	if (!footsteps_active)
+	{
+		player->footstep_ticks_remaining= 0;
+	}
+	else
+	{
+		const int footstep_interval= player->sprinting ? 7 :
+			((action_flags&_run_dont_walk) ? 12 : 23);
+
+		// Never retain a slower mode's long countdown after accelerating.
+		const uint8 cadence_countdown= static_cast<uint8>(
+			std::max(1, footstep_interval)-1);
+		player->footstep_ticks_remaining= std::min(
+			player->footstep_ticks_remaining, cadence_countdown);
+
+		if (player->footstep_ticks_remaining>0)
+		{
+			player->footstep_ticks_remaining--;
+		}
+		else
+		{
+			if (input_preferences->sprintathon_footsteps)
+				sprintathon_play_footstep_sound(
+					player->monster_index, player->footstep_alternate);
+			player->footstep_alternate= !player->footstep_alternate;
+			player->footstep_ticks_remaining= cadence_countdown;
+		}
+
+		// Run bob completes once per step. Sprint bob advances half a cycle per
+		// step for a smoother two-step stride, independent of scenario physics.
+		if (((action_flags&_run_dont_walk) || player->sprinting) &&
+			cadence_countdown>0)
+		{
+			const int16 elapsed= cadence_countdown-
+				player->footstep_ticks_remaining;
+			const angle run_bob_angle= player->sprinting
+				? NORMALIZE_ANGLE(static_cast<angle>(
+					(player->footstep_alternate ? QUARTER_CIRCLE : 3*QUARTER_CIRCLE) +
+					(static_cast<int32>(elapsed)*HALF_CIRCLE)/cadence_countdown))
+				: NORMALIZE_ANGLE(static_cast<angle>(
+					QUARTER_CIRCLE +
+					(static_cast<int32>(elapsed)*FULL_CIRCLE)/cadence_countdown));
+			synchronized_movement_step_phase= static_cast<_fixed>(
+				(static_cast<int64_t>(run_bob_angle)*FIXED_ONE)/FULL_CIRCLE);
+		}
+	}
+
 	if (constants->maximum_forward_velocity)
 		variables->step_amplitude= (MAX(std::abs(variables->velocity), std::abs(variables->perpendicular_velocity))*FIXED_ONE)/constants->maximum_forward_velocity;
 	else	// CB: "Missed Island" physics would produce a division by 0
@@ -1815,6 +1902,8 @@ static void physics_update(
 			}
 		}
 	}
+	if (synchronized_movement_step_phase>=0)
+		variables->step_phase= synchronized_movement_step_phase;
 
 	if (delta_z >= (PLAYER_IS_DEAD(player) ? (AIRBORNE_HEIGHT+DROP_DEAD_HEIGHT) : AIRBORNE_HEIGHT))
 	{

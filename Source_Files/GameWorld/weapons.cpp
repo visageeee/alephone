@@ -1211,6 +1211,8 @@ bool get_weapon_display_information(
 	short *count, 
 	struct weapon_display_information *data)
 {
+	data->side_mounted = false;
+	data->rotation_degrees = 0.0f;
 	if (world_is_interpolated)
 	{
 		return get_interpolated_weapon_display_information(count, data);
@@ -1246,6 +1248,15 @@ bool get_weapon_display_information(
 			if(type==_weapon_type || type==_weapon_ammo_type)
 			{
 				data->interpolation_data |= (weapon->weapon_type << 4);
+				const bool paired_hands =
+					(definition->weapon_class == _twofisted_pistol_class ||
+					 (definition->weapon_class == _melee_class &&
+					  !(definition->flags & _weapon_is_marathon_1))) &&
+					PRIMARY_WEAPON_IS_VALID(weapon) &&
+					SECONDARY_WEAPON_IS_VALID(weapon);
+				data->side_mounted =
+					definition->idle_width < FIXED_ONE_HALF - FIXED_ONE / 8 ||
+					definition->idle_width > FIXED_ONE_HALF + FIXED_ONE / 8;
 				short phase;
 
 				/* Tell the weapon a frame passed, in case it cares. */
@@ -1498,6 +1509,7 @@ bool get_weapon_display_information(
 				data->horizontal_positioning_mode= _position_center;
 				data->vertical_position= height;
 				data->horizontal_position= width;
+
 				if(flags & _flip_shape_vertical)
 				{
 					data->flip_vertical= true;
@@ -1517,6 +1529,42 @@ bool get_weapon_display_information(
 					// hardcoded for Marathon 1 rocket launcher
 					data->vertical_position += M1_MISSILE_AMMO_YOFFSET;
 					data->horizontal_position += M1_MISSILE_AMMO_XOFFSET;
+				}
+
+				/*
+				 * Weapon handedness is presentation-only. Center preserves the
+				 * scenario's original placement. A left-handed dual layout swaps
+				 * the primary and secondary hands; the launcher is reflected as a
+				 * whole because its artwork is deliberately side-mounted.
+				 */
+				const int hand = player_preferences->weapon_hand;
+				if (paired_hands)
+				{
+					if (hand == _weapon_hand_left)
+					{
+						data->horizontal_position =
+							FIXED_ONE - data->horizontal_position;
+						data->flip_horizontal = !data->flip_horizontal;
+					}
+				}
+				else if (weapon->weapon_type == _weapon_missile_launcher)
+				{
+					if (hand == _weapon_hand_left)
+					{
+						data->horizontal_position =
+							FIXED_ONE - data->horizontal_position;
+						data->flip_horizontal = !data->flip_horizontal;
+					}
+				}
+				else if (hand != _weapon_hand_center)
+				{
+					const int direction =
+						hand == _weapon_hand_left ? -1 : 1;
+					data->horizontal_position += direction * (FIXED_ONE / 10);
+					data->rotation_degrees = -3.0f * direction;
+					if (hand == _weapon_hand_left &&
+						definition->weapon_class != _melee_class)
+						data->flip_horizontal = !data->flip_horizontal;
 				}
 			
 				/* Fill in the transfer mode and phase */
@@ -2926,12 +2974,18 @@ static void calculate_weapon_position_for_idle(
 	/* Weapons are the first thing drawn */
 	bob_height= (player->variables.step_amplitude*definition->bob_amplitude)>>FIXED_FRACTIONAL_BITS;
 	bob_height= (bob_height*table[vertical_angle])>>TRIG_SHIFT;
+	if (input_preferences->sprintathon_enabled &&
+		(player->sprinting || player->variables.action==_player_running))
+		bob_height= (bob_height*2)/3;
 	if (graphics_preferences->screen_mode.bobbing_type == BobbingType::none) bob_height= 0;
 	if (use_elevation) bob_height+= sine_table[player->elevation]<<3;
 	*height+= bob_height;
 
 	bob_width= (player->variables.step_amplitude*definition->horizontal_amplitude)>>FIXED_FRACTIONAL_BITS;
 	bob_width= (bob_width*table[horizontal_phase>>(FIXED_FRACTIONAL_BITS-ANGULAR_BITS)])>>TRIG_SHIFT;
+	if (input_preferences->sprintathon_enabled &&
+		(player->sprinting || player->variables.action==_player_running))
+		bob_width= (bob_width*2)/3;
 	if (graphics_preferences->screen_mode.bobbing_type == BobbingType::none) bob_width= 0;
 	*width += bob_width;
 }

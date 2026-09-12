@@ -51,7 +51,8 @@ protected:
 	virtual void _render_node_object_helper(render_object_data *object, RenderStep renderStep);
 
     void render_viewer_sprite_layer(RenderStep renderStep);
-    void render_viewer_sprite(rectangle_definition& RenderRectangle, RenderStep renderStep);
+    void render_viewer_sprite(rectangle_definition& RenderRectangle, RenderStep renderStep,
+        float rotation_degrees = 0.0f);
 	
 public:
 

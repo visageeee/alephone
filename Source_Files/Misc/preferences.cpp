@@ -432,6 +432,13 @@ void handle_preferences(void)
 		new w_toggle(player_preferences->crosshairs_active);
 	appearance->dual_add(player_crosshair_w->label("Show Crosshairs"), d);
 	appearance->dual_add(player_crosshair_w, d);
+	static const char *weapon_hand_labels[] = {
+		"Left", "Center", "Right", nullptr
+	};
+	w_select *player_weapon_hand_w = new w_select(
+		player_preferences->weapon_hand, weapon_hand_labels);
+	appearance->dual_add(player_weapon_hand_w->label("Weapon Hand"), d);
+	appearance->dual_add(player_weapon_hand_w, d);
 	appearance_page->add(appearance, true);
 	appearance_page->dual_add(new w_button(
 		"CROSSHAIR SETTINGS", crosshair_dialog, &d), d);
@@ -879,7 +886,12 @@ void handle_preferences(void)
 	ADD_EMBEDDED_SPRINTATHON_TOGGLE(wall_jump_w, sprintathon_wall_jump, "Wall-Jumping");
 	ADD_EMBEDDED_SPRINTATHON_TOGGLE(swimming_w, sprintathon_swimming, "Modern Swimming");
 	ADD_EMBEDDED_SPRINTATHON_TOGGLE(ledge_grab_w, sprintathon_ledge_grab, "Ledge-Grabbing");
+	ADD_EMBEDDED_SPRINTATHON_TOGGLE(footsteps_w, sprintathon_footsteps, "Footstep Sounds");
 #undef ADD_EMBEDDED_SPRINTATHON_TOGGLE
+	w_percentage_slider *footstep_volume_w = new w_percentage_slider(
+		101, input_preferences->sprintathon_footstep_volume_percent);
+	sprintathon_settings->dual_add(footstep_volume_w->label("Footstep Volume"), d);
+	sprintathon_settings->dual_add(footstep_volume_w, d);
 	w_toggle *sprint_w = new w_toggle(input_preferences->sprintathon_sprint);
 	sprintathon_settings->dual_add(sprint_w->label("Sprinting"), d);
 	sprintathon_settings->dual_add(sprint_w, d);
@@ -955,6 +967,8 @@ void handle_preferences(void)
 		static_cast<int16>(player_team_w->get_selection());
 	player_preferences->crosshairs_active =
 		player_crosshair_w->get_selection();
+	player_preferences->weapon_hand =
+		static_cast<int16>(player_weapon_hand_w->get_selection());
 	if (player_solo_profile_w)
 	{
 		auto profile = player_solo_profile_w->get_selection();
@@ -1212,7 +1226,10 @@ void handle_preferences(void)
 	STORE_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_wall_jump, wall_jump_w);
 	STORE_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_swimming, swimming_w);
 	STORE_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_ledge_grab, ledge_grab_w);
+	STORE_EMBEDDED_SPRINTATHON_TOGGLE(sprintathon_footsteps, footsteps_w);
 #undef STORE_EMBEDDED_SPRINTATHON_TOGGLE
+	input_preferences->sprintathon_footstep_volume_percent =
+		footstep_volume_w->get_selection();
 	input_preferences->sprintathon_sprint_drain_percent =
 		sprint_drain_w->get_selection() + 10;
 	input_preferences->sprintathon_oxygen_recovery_percent =
@@ -3513,7 +3530,12 @@ static void sprintathon_dialog(void *arg)
 	ADD_SPRINTATHON_TOGGLE(wall_jump_w, sprintathon_wall_jump, "Wall-Jumping");
 	ADD_SPRINTATHON_TOGGLE(swimming_w, sprintathon_swimming, "Modern Swimming");
 	ADD_SPRINTATHON_TOGGLE(ledge_grab_w, sprintathon_ledge_grab, "Ledge-Grabbing");
+	ADD_SPRINTATHON_TOGGLE(footsteps_w, sprintathon_footsteps, "Footstep Sounds");
 #undef ADD_SPRINTATHON_TOGGLE
+	w_percentage_slider *footstep_volume_w = new w_percentage_slider(
+		101, input_preferences->sprintathon_footstep_volume_percent);
+	options->dual_add(footstep_volume_w->label("Footstep Volume"), d);
+	options->dual_add(footstep_volume_w, d);
 
 	static const char* mouselook_range_labels[] = {
 		"Original (30 degrees)", "45 degrees", "60 degrees", "75 degrees",
@@ -3555,7 +3577,10 @@ static void sprintathon_dialog(void *arg)
 		STORE_SPRINTATHON_TOGGLE(sprintathon_wall_jump, wall_jump_w);
 		STORE_SPRINTATHON_TOGGLE(sprintathon_swimming, swimming_w);
 		STORE_SPRINTATHON_TOGGLE(sprintathon_ledge_grab, ledge_grab_w);
+		STORE_SPRINTATHON_TOGGLE(sprintathon_footsteps, footsteps_w);
 #undef STORE_SPRINTATHON_TOGGLE
+		input_preferences->sprintathon_footstep_volume_percent =
+			footstep_volume_w->get_selection();
 		write_preferences();
 	}
 }
@@ -5103,6 +5128,7 @@ InfoTree player_preferences_tree()
 	root.put_attr("difficulty", player_preferences->difficulty_level);
 	root.put_attr("bkgd_music", player_preferences->background_music_on);
 	root.put_attr("crosshairs_active", player_preferences->crosshairs_active);
+	root.put_attr("weapon_hand", player_preferences->weapon_hand);
 	
 	ChaseCamData& ChaseCam = player_preferences->ChaseCam;
 	InfoTree cam;
@@ -5342,6 +5368,9 @@ InfoTree input_preferences_tree()
 	root.put_attr("sprintathon_wall_jump", input_preferences->sprintathon_wall_jump);
 	root.put_attr("sprintathon_swimming", input_preferences->sprintathon_swimming);
 	root.put_attr("sprintathon_ledge_grab", input_preferences->sprintathon_ledge_grab);
+	root.put_attr("sprintathon_footsteps", input_preferences->sprintathon_footsteps);
+	root.put_attr("sprintathon_footstep_volume_percent",
+		input_preferences->sprintathon_footstep_volume_percent);
 	root.put_attr("mouse_accel_type", input_preferences->mouse_accel_type);
 	root.put_attr("mouse_accel_scale", input_preferences->mouse_accel_scale);
 	root.put_attr("raw_mouse_input", input_preferences->raw_mouse_input);
@@ -5652,6 +5681,7 @@ static void default_player_preferences(player_preferences_data *preferences)
 	obj_clear(*preferences);
 
 	preferences->difficulty_level= 2;
+	preferences->weapon_hand = _weapon_hand_center;
 	strncpy(preferences->name, get_name_from_system().c_str(), PREFERENCES_NAME_LENGTH);
 	preferences->name[PREFERENCES_NAME_LENGTH] = '\0';
 	
@@ -5706,6 +5736,8 @@ static void default_input_preferences(input_preferences_data *preferences)
 	preferences->sprintathon_wall_jump = true;
 	preferences->sprintathon_swimming = true;
 	preferences->sprintathon_ledge_grab = true;
+	preferences->sprintathon_footsteps = true;
+	preferences->sprintathon_footstep_volume_percent = 100;
 
 	preferences->controller_aim_inverted = false;
 	preferences->controller_analog = true;
@@ -5869,6 +5901,11 @@ static bool validate_player_preferences(player_preferences_data *preferences)
 {
 	// Fix bool options
 	preferences->background_music_on = !!preferences->background_music_on;
+	if (preferences->weapon_hand < _weapon_hand_left ||
+		preferences->weapon_hand >= NUMBER_OF_WEAPON_HAND_OPTIONS)
+	{
+		preferences->weapon_hand = _weapon_hand_center;
+	}
 
 	return false;
 }
@@ -6142,6 +6179,7 @@ void parse_player_preferences(InfoTree root, std::string version)
 	root.read_attr("difficulty", player_preferences->difficulty_level);
 	root.read_attr("bkgd_music", player_preferences->background_music_on);
 	root.read_attr("crosshairs_active", player_preferences->crosshairs_active);
+	root.read_attr("weapon_hand", player_preferences->weapon_hand);
 	
 	for (const InfoTree &child : root.children_named("chase_cam"))
 	{
@@ -6284,6 +6322,9 @@ void parse_input_preferences(InfoTree root, std::string version)
 	root.read_attr("sprintathon_wall_jump", input_preferences->sprintathon_wall_jump);
 	root.read_attr("sprintathon_swimming", input_preferences->sprintathon_swimming);
 	root.read_attr("sprintathon_ledge_grab", input_preferences->sprintathon_ledge_grab);
+	root.read_attr("sprintathon_footsteps", input_preferences->sprintathon_footsteps);
+	root.read_attr_bounded<int16>("sprintathon_footstep_volume_percent",
+		input_preferences->sprintathon_footstep_volume_percent, 0, 100);
 	
 	if (!root.read_attr("classic_aim_speed_limits", input_preferences->classic_aim_speed_limits))
 	{
