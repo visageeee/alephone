@@ -13,18 +13,19 @@ Sacrilegious features include JUMPING, CROUCHING, SPRINTING, SWIMMING ABOVE THE 
 All gameplay additions can be configured from the **Sprintathon** preferences panel.
 
 - Full unrestricted mouselook
-- Adjustable vertical mouselook range.
-- Improved first-person camera perspective
 - Smoother mouse aiming
 - Jumping with coyote time
 - Crouching and crouch long-jumps
-- Sprinting that repurposes the oxygen system into a recharging stamina meter. (Who liked vacuum levels anyway?) 
-- "Realistic" Reloading.
-- Lowered weapon and enhanced weapon sway while sprinting
+- Sprinting that repurposes the oxygen system into a recharging stamina meter
+- Sprint-slide attack
+- Jump kicks and wall kicks
 - Wall-running and wall-jumping
+- "Realistic" Reloading
+- Improved weapon sway
 - Modernized swimming and surface movement
 - Water and dry ledge-grabbing
 - Optional global fog
+- Revamped preferences panel and Level Select
 
 Movement features can be enabled or disabled individually, allowing Sprintathon to range from mostly traditional Marathon movement to the complete modernized movement set.
 
